@@ -120,3 +120,7 @@ test('task checkboxes stay numbered and hljs output keeps classes', () => {
   expect(doc.querySelector('code.hljs.language-js .hljs-keyword')).not.toBeNull();
   expect(doc.querySelector('[style]')).toBeNull();
 });
+
+test('soft line breaks render as <br>', () => {
+  expect(renderMarkdown('milk\neggs')).toContain('milk<br>eggs');
+});

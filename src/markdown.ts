@@ -9,7 +9,7 @@ let nonce = '';
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const marked = new Marked({ gfm: true });
+const marked = new Marked({ gfm: true, breaks: true });
 marked.use({
   renderer: {
     checkbox({ checked }) {

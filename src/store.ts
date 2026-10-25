@@ -62,14 +62,19 @@ export class StickyStore {
     this.storage?.removeItem(KEY_PREFIX + id);
   }
 
+  // Marker first, so other tabs see `clear` before any per-sticky `remove`.
+  // The marker is unique per clear so back-to-back clears still fire a storage event.
   clearAll(): void {
     if (!this.storage) return;
-    for (const k of this.stickyKeys()) this.storage.removeItem(k);
+    const keys = this.stickyKeys();
+    let failure: StorageFailure | undefined;
     try {
-      this.storage.setItem(CLEARED_KEY, new Date().toISOString());
+      this.storage.setItem(CLEARED_KEY, `${new Date().toISOString()}#${crypto.randomUUID()}`);
     } catch (cause) {
-      throw new StorageFailure('Could not save to browser storage.', { cause });
+      failure = new StorageFailure('Could not save to browser storage.', { cause });
     }
+    for (const k of keys) this.storage.removeItem(k);
+    if (failure) throw failure;
   }
 }
 

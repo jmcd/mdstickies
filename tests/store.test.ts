@@ -75,8 +75,27 @@ describe('StickyStore', () => {
     expect(st.getItem('other-app:key')).toBe('keep');
     const marker = st.getItem(CLEARED_KEY);
     expect(marker).not.toBeNull();
-    expect(Number.isNaN(Date.parse(marker!))).toBe(false);
+    expect(Number.isNaN(Date.parse(marker!.split('#')[0]))).toBe(false);
     expect(st.length).toBe(2);
+  });
+
+  test('clearAll writes the marker before removing any sticky key, and each marker is unique', () => {
+    const st = new FakeStorage();
+    const store = new StickyStore(st);
+    store.put(s1); store.put(s2);
+    const ops: string[] = [];
+    const set = st.setItem.bind(st), rem = st.removeItem.bind(st);
+    st.setItem = (k, v) => { ops.push(`set:${k}`); set(k, v); };
+    st.removeItem = (k) => { ops.push(`remove:${k}`); rem(k); };
+    store.clearAll();
+    const first = st.getItem(CLEARED_KEY);
+    expect(ops).toEqual([
+      `set:${CLEARED_KEY}`,
+      expect.stringMatching(/^remove:/),
+      expect.stringMatching(/^remove:/),
+    ]);
+    store.clearAll();
+    expect(st.getItem(CLEARED_KEY)).not.toBe(first);
   });
 
   test('two stores on one storage do not clobber each other', () => {

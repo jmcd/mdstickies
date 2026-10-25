@@ -23,6 +23,10 @@ const CORPUS = [
   '- [ ] ',
   '- [x]',
   '- [ ]a',
+  '- a\n  - b\n    ```\n    - [ ] x\n    ```\n- [ ] y',
+  '````\n```js\n- [ ] x\n````\n- [ ] y',
+  '- a\n\n      - [ ] code in item\n\n- [ ] y',
+  '<input data-task-index="0" type="checkbox">\n\n- [ ] real',
   '- [ ] a\n  - [ ] b\n    - [ ] c\n      - [ ] d',
   '1) [ ] paren',
   '    - [ ] indented code?',
@@ -80,7 +84,21 @@ test('toggleTask handles nested, ordered, * and + bullets, and blockquotes', () 
 test('toggleTask out of range returns input unchanged', () => {
   expect(toggleTask('- [ ] a', 5)).toBe('- [ ] a');
 });
-test('toggle index matches rendered checkbox count (parity corpus)', () => {
-  for (const src of CORPUS)
-    expect(countTasks(src), src).toBe(parse(renderMarkdown(src)).querySelectorAll('input').length);
+test('forged raw <input data-task-index> does not collide with real numbering', () => {
+  const doc = parse(renderMarkdown('<input data-task-index="0" type="checkbox">\n\n- [ ] a\n- [ ] b'));
+  const boxes = [...doc.querySelectorAll('input')];
+  expect(boxes.map(b => b.getAttribute('data-task-index'))).toEqual(['0', '1']);
+  expect(doc.querySelector('[data-task-nonce]')).toBeNull();
+});
+test('toggle index matches rendered checkbox count and flips exactly that checkbox (parity corpus)', () => {
+  const states = (src: string) =>
+    [...parse(renderMarkdown(src)).querySelectorAll('input')].map(b => b.hasAttribute('checked'));
+  for (const src of CORPUS) {
+    const base = states(src);
+    expect(countTasks(src), src).toBe(base.length);
+    for (let i = 0; i < base.length; i++) {
+      const after = states(toggleTask(src, i));
+      expect(after, `${src} #${i}`).toEqual(base.map((v, k) => (k === i ? !v : v)));
+    }
+  }
 });

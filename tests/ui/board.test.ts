@@ -15,13 +15,13 @@ function sticky(over: Partial<Sticky> = {}): Sticky {
   };
 }
 
-function setup(opts: { saved?: Sticky[]; storage?: Storage | null; answers?: string[]; file?: string | null } = {}) {
+function setup(opts: { saved?: Sticky[]; storage?: Storage | null; answers?: string[]; file?: string | null; dialog?: BoardDeps['dialog'] } = {}) {
   const storage = opts.storage === undefined ? new FakeStorage() : opts.storage;
   const store = new StickyStore(storage);
   for (const s of opts.saved ?? []) store.put(s);
   const answers = [...(opts.answers ?? [])];
   const deps = {
-    dialog: vi.fn(async () => answers.shift() ?? 'cancel'),
+    dialog: vi.fn(opts.dialog ?? (async () => answers.shift() ?? 'cancel')),
     download: vi.fn(),
     pickFile: vi.fn(async () => (opts.file === undefined ? null : opts.file)),
   } satisfies BoardDeps;
@@ -860,5 +860,122 @@ describe('selection actions', () => {
       act(root, l);
       expect(sorted(board)).toEqual(['a', 'b']);
     }
+  });
+});
+
+describe('bulk delete', () => {
+  const four = (answers: string[] = [], over: Partial<Sticky>[] = []) => setup({ answers, saved: ['a', 'b', 'c', 'd'].map((id, i) => sticky({ id, x: i * 250, ...over[i] })) });
+  const pick = (root: HTMLElement, ...ids: string[]) => ids.forEach((id) => shiftClick(root, id));
+  const del = (root: HTMLElement) =>
+    [...selectionBar(root).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Delete')!.click();
+  const ids = (root: HTMLElement) => views(root).map((v) => v.dataset.id).sort();
+
+  it('Delete asks once for the whole selection, then removes them everywhere', async () => {
+    const { root, store, deps } = four(['delete']);
+    pick(root, 'a', 'b', 'c');
+    del(root);
+    await Promise.resolve();
+    expect(deps.dialog).toHaveBeenCalledTimes(1);
+    expect(deps.dialog).toHaveBeenCalledWith(expect.objectContaining({ message: "Delete 3 notes? This can't be undone." }));
+    await Promise.resolve();
+    expect(ids(root)).toEqual(['d']);
+    expect(store.get('a')).toBeUndefined();
+    expect(store.get('b')).toBeUndefined();
+    expect(store.get('c')).toBeUndefined();
+    expect(store.get('d')).toBeDefined();
+  });
+
+  it('cancelling bulk delete keeps everything', async () => {
+    const { root, store, board } = four(['cancel']);
+    pick(root, 'a', 'b');
+    del(root);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ids(root)).toEqual(['a', 'b', 'c', 'd']);
+    expect(store.get('a')).toBeDefined();
+    expect(board.selectedIds().sort()).toEqual(['a', 'b']);
+  });
+
+  it('a selection of empty notes deletes without asking', async () => {
+    const { root, store, deps } = four([], [{ text: '' }, { text: '  ' }]);
+    pick(root, 'a', 'b');
+    del(root);
+    await Promise.resolve();
+    expect(deps.dialog).not.toHaveBeenCalled();
+    expect(ids(root)).toEqual(['c', 'd']);
+    expect(store.get('a')).toBeUndefined();
+  });
+
+  it('a single note asks "Delete this note?"', async () => {
+    const { root, deps } = four(['cancel']);
+    pick(root, 'a');
+    del(root);
+    expect(deps.dialog).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete this note?' }));
+  });
+
+  it('Backspace and Delete delete the selection when not editing, and do nothing in a textarea', async () => {
+    const { root, board, deps } = four(['delete', 'delete']);
+    pick(root, 'a', 'b');
+    const ta = document.createElement('textarea');
+    root.append(ta);
+    key(ta, 'Delete');
+    key(ta, 'Backspace');
+    expect(deps.dialog).not.toHaveBeenCalled();
+    expect(board.selectedIds().sort()).toEqual(['a', 'b']);
+    const e = key(document.body, 'Backspace');
+    expect(e.defaultPrevented).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ids(root)).toEqual(['c', 'd']);
+    pick(root, 'c');
+    key(document.body, 'Delete');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ids(root)).toEqual(['d']);
+  });
+
+  it('Delete with nothing selected does nothing', () => {
+    const { root, deps } = four();
+    const e = key(document.body, 'Delete');
+    expect(e.defaultPrevented).toBe(false);
+    expect(deps.dialog).not.toHaveBeenCalled();
+    expect(ids(root)).toHaveLength(4);
+  });
+
+  it('shortcuts are ignored while a dialog is pending', () => {
+    const { root, board, deps } = setup({
+      saved: ['a', 'b'].map((id) => sticky({ id })),
+      dialog: () => new Promise<string>(() => {}),
+    });
+    pick(root, 'a');
+    key(document.body, 'Delete');
+    key(document.body, 'Escape');
+    key(document.body, 'a', { ctrlKey: true });
+    expect(deps.dialog).toHaveBeenCalledTimes(1);
+    expect(board.selectedIds()).toEqual(['a']);
+  });
+
+  it('notes removed by another tab while the dialog is up are skipped', async () => {
+    const { root, board, store } = four(['delete']);
+    pick(root, 'a', 'b', 'c');
+    let release!: (v: string) => void;
+    (board as unknown as { deps: BoardDeps }).deps.dialog = () => new Promise<string>((r) => { release = r; });
+    del(root);
+    board.applyRemote({ kind: 'remove', id: 'b' });
+    release('delete');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ids(root)).toEqual(['d']);
+    expect(store.get('a')).toBeUndefined();
+    expect(store.get('c')).toBeUndefined();
+  });
+
+  it('Ctrl+A then Delete still asks before clearing the board', async () => {
+    const { root, deps, store } = four(['cancel']);
+    key(document.body, 'a', { ctrlKey: true });
+    key(document.body, 'Delete');
+    expect(deps.dialog).toHaveBeenCalledTimes(1);
+    expect(ids(root)).toHaveLength(4);
+    expect(store.get('a')).toBeDefined();
   });
 });

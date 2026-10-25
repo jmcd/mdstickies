@@ -79,6 +79,7 @@ export class Board {
     ];
     for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
     this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
+    this.selectionBar.append(this.barButton('Delete', () => void this.deleteSelected()));
     this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
     toolbar.append(this.selectionBar);
 
@@ -347,7 +348,10 @@ export class Board {
       this.setColourOpen(false);
       return;
     }
-    if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected.size > 0) {
+      e.preventDefault(); // Backspace can navigate back in some browsers
+      void this.deleteSelected();
+    } else if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
       this.setSelection(this.notes.keys());
     } else if (e.key === 'Escape') {
@@ -416,6 +420,27 @@ export class Board {
     }
     this.removeLocal(id);
     this.store.remove(id);
+    this.resize();
+  }
+
+  private async deleteSelected(): Promise<void> {
+    const sel = this.selectedStickies();
+    const n = sel.length;
+    if (n === 0) return;
+    const ids = sel.map((s) => s.id);
+    if (sel.some((s) => s.text.trim() !== '')) {
+      const answer = await this.ask({
+        message: n === 1 ? 'Delete this note?' : `Delete ${n} notes? This can't be undone.`,
+        buttons: [{ id: 'delete', label: 'Delete', danger: true }, { id: 'cancel', label: 'Cancel' }],
+        cancelId: 'cancel',
+      });
+      if (answer !== 'delete') return;
+    }
+    for (const id of ids) {
+      if (!this.notes.has(id)) continue; // removed elsewhere while the dialog was up
+      this.removeLocal(id);
+      this.store.remove(id);
+    }
     this.resize();
   }
 

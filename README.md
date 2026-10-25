@@ -11,6 +11,10 @@ npm test
 npm run build
 ```
 
+## Selecting several notes
+
+Drag a box on empty board, Shift-click or Ctrl/Cmd-click notes, or press Ctrl/Cmd+A. The toolbar then shows actions for the selection: arrange, align, colour, export and delete. Delete or Backspace deletes the selected notes after one confirmation. Esc clears the selection.
+
 ## Deploying to GitHub Pages
 
 Pushes to `main` run `.github/workflows/deploy.yml`, which tests, builds and deploys `dist`.

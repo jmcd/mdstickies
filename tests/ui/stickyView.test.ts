@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { StickyView, type StickyViewCallbacks } from '../../src/ui/stickyView';
 import type { Sticky } from '../../src/model';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 function make(over: Partial<Sticky> = {}) {
   const sticky: Sticky = {
@@ -38,6 +40,22 @@ describe('StickyView', () => {
     expect(view.el.style.height).toBe('180px');
     expect(view.el.style.zIndex).toBe('3');
     expect(view.el.classList.contains('sticky--yellow')).toBe(true);
+  });
+
+  it('marks the note with an editing class only while editing', () => {
+    const { view } = make({ text: '- [ ] a' });
+    (view.el.querySelector('input[data-task-index="0"]') as HTMLInputElement).focus();
+    expect(view.el.classList.contains('editing')).toBe(false);
+    view.edit();
+    expect(view.el.classList.contains('editing')).toBe(true);
+    area(view).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    expect(view.el.classList.contains('editing')).toBe(false);
+  });
+
+  it('draws the edit outline from the editing class, not from focus-within', () => {
+    const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
+    expect(css).not.toMatch(/\.sticky:focus-within/);
+    expect(css).toMatch(/\.sticky\.editing\s*\{[^}]*outline/);
   });
 
   it('renders markdown when not editing', () => {

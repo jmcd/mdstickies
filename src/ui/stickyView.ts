@@ -98,6 +98,7 @@ export class StickyView {
 
   edit(): void {
     if (this.textarea) return;
+    this.el.classList.add('editing');
     const ta = (this.textarea = document.createElement('textarea'));
     ta.className = 'sticky-text';
     ta.value = this.sticky.text;
@@ -120,6 +121,7 @@ export class StickyView {
   private endEdit(): void {
     if (!this.textarea) return;
     this.textarea = null;
+    this.el.classList.remove('editing');
     this.renderBody();
     this.cb.onEditEnd(this.sticky.id);
   }

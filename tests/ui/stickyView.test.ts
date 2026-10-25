@@ -23,7 +23,7 @@ afterEach(() => { document.body.innerHTML = ''; });
 const body = (v: StickyView) => v.el.querySelector('.sticky-body') as HTMLElement;
 const area = (v: StickyView) => v.el.querySelector('textarea') as HTMLTextAreaElement;
 
-function ptr(target: Element, type: string, x: number, y: number, extra: { button?: number; buttons?: number } = {}) {
+function ptr(target: Element, type: string, x: number, y: number, extra: { button?: number; buttons?: number; shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) {
   const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1, ...extra };
   target.dispatchEvent(
     typeof PointerEvent !== 'undefined' ? new PointerEvent(type, init) : new MouseEvent(type, init),
@@ -415,5 +415,127 @@ describe('StickyView', () => {
     expect(view.el.classList.contains('dragging')).toBe(false);
     ptr(bar, 'pointerup', 40, 30);
     expect(cb.onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('selection', () => {
+  function makeSel(over: Partial<Sticky> = {}) {
+    const m = make(over);
+    const cb2 = { onToggleSelect: vi.fn(), onPlainClick: vi.fn(), onGroupMove: vi.fn() };
+    const view = new StickyView(m.sticky, { ...m.cb, ...cb2 });
+    m.view.el.remove();
+    document.body.appendChild(view.el);
+    return { view, cb: { ...m.cb, ...cb2 } };
+  }
+  const bar = (v: StickyView) => v.el.querySelector('.sticky-bar') as HTMLElement;
+  const click = (t: Element, init: MouseEventInit = {}) =>
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...init }));
+
+  it('shift-press toggles selection without activating, dragging or editing', () => {
+    const { view, cb } = makeSel();
+    ptr(body(view), 'pointerdown', 0, 0, { shiftKey: true });
+    ptr(body(view), 'pointerup', 0, 0, { shiftKey: true });
+    click(body(view), { shiftKey: true });
+    expect(cb.onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(cb.onToggleSelect).toHaveBeenCalledWith('s1');
+    expect(cb.onActivate).not.toHaveBeenCalled();
+    expect(cb.onPlainClick).not.toHaveBeenCalled();
+    expect(area(view)).toBeNull();
+  });
+
+  it('ctrl-press on a checkbox toggles selection and leaves the text alone', () => {
+    const { view, cb } = makeSel({ text: '- [ ] a' });
+    const box = body(view).querySelector('input[data-task-index="0"]') as HTMLElement;
+    ptr(box, 'pointerdown', 0, 0, { ctrlKey: true });
+    click(box, { ctrlKey: true });
+    expect(cb.onToggleSelect).toHaveBeenCalledTimes(1);
+    expect(cb.onChange).not.toHaveBeenCalled();
+  });
+
+  it('shift-click inside the editing textarea does not toggle', () => {
+    const { view, cb } = makeSel();
+    view.edit();
+    ptr(area(view), 'pointerdown', 0, 0, { shiftKey: true });
+    click(area(view), { shiftKey: true });
+    expect(cb.onToggleSelect).not.toHaveBeenCalled();
+  });
+
+  it('setSelected adds and removes the selected class', () => {
+    const { view } = makeSel();
+    view.setSelected(true);
+    expect(view.selected).toBe(true);
+    expect(view.el.classList.contains('selected')).toBe(true);
+    view.setSelected(false);
+    expect(view.selected).toBe(false);
+    expect(view.el.classList.contains('selected')).toBe(false);
+  });
+
+  it('dragging a selected note reports group moves, not its own move', () => {
+    const { view, cb } = makeSel();
+    view.setSelected(true);
+    ptr(bar(view), 'pointerdown', 0, 0);
+    ptr(bar(view), 'pointermove', 30, 40);
+    ptr(bar(view), 'pointerup', 30, 40);
+    expect(cb.onGroupMove.mock.calls).toEqual([['s1', 30, 40, 'move'], ['s1', 30, 40, 'end']]);
+    expect(cb.onChange).not.toHaveBeenCalled();
+    expect(cb.onActivate).not.toHaveBeenCalled();
+    expect(view.el.style.left).toBe('100px');
+  });
+
+  it('lostpointercapture during a group drag reports cancel', () => {
+    const { view, cb } = makeSel();
+    view.setSelected(true);
+    ptr(bar(view), 'pointerdown', 0, 0);
+    ptr(bar(view), 'pointermove', 30, 40);
+    view.el.dispatchEvent(new Event('lostpointercapture'));
+    expect(cb.onGroupMove).toHaveBeenLastCalledWith('s1', 0, 0, 'cancel');
+  });
+
+  it('preview moves the element without reporting', () => {
+    const { view, cb } = makeSel();
+    view.preview(5, -10);
+    expect(view.el.style.left).toBe('105px');
+    expect(view.el.style.top).toBe('40px');
+    expect(cb.onChange).not.toHaveBeenCalled();
+  });
+
+  it('a below-threshold press on a selected note is a plain click, not a group move', () => {
+    const { view, cb } = makeSel();
+    view.setSelected(true);
+    ptr(body(view), 'pointerdown', 0, 0);
+    ptr(body(view), 'pointerup', 0, 0);
+    click(body(view));
+    expect(cb.onGroupMove).not.toHaveBeenCalled();
+    expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
+  });
+
+  it('a plain click reports onPlainClick before entering edit', () => {
+    const { view, cb } = makeSel();
+    cb.onEditStart.mockImplementation(() => expect(cb.onPlainClick).toHaveBeenCalledWith('s1'));
+    click(body(view));
+    expect(cb.onPlainClick).toHaveBeenCalledTimes(1);
+    expect(cb.onEditStart).toHaveBeenCalled();
+  });
+
+  it('a click ending a drag does not report onPlainClick', () => {
+    const { view, cb } = makeSel();
+    ptr(body(view), 'pointerdown', 0, 0);
+    ptr(body(view), 'pointermove', 30, 40);
+    ptr(body(view), 'pointerup', 30, 40);
+    click(body(view));
+    expect(cb.onPlainClick).not.toHaveBeenCalled();
+  });
+
+  it('dot, palette and x clicks do not report onPlainClick', () => {
+    const { view, cb } = makeSel();
+    click(view.el.querySelector('.sticky-palette')!);
+    click(view.el.querySelector('.sticky-dot--blue')!);
+    click(view.el.querySelector('.sticky-delete')!);
+    expect(cb.onPlainClick).not.toHaveBeenCalled();
+  });
+
+  it('the selected outline is drawn from .sticky.selected', () => {
+    const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
+    expect(css).toMatch(/\.sticky\.selected\s*\{[^}]*outline/);
   });
 });

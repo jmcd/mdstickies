@@ -185,6 +185,11 @@
 .sticky-body > :last-child { margin-bottom: 0; }
 .sticky-body pre { overflow-x: auto; }
 
+.sticky.selected {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
 .sticky-text {
   box-sizing: border-box;
   width: 100%;

@@ -1,5 +1,6 @@
 import { COLORS, MIN_SIZE, type Sticky } from '../model';
 import { renderMarkdown, toggleTask } from '../markdown';
+import { isSelectModifier } from './keys';
 
 export interface StickyViewCallbacks {
   onChange(
@@ -11,6 +12,10 @@ export interface StickyViewCallbacks {
   onEditStart(id: string): void;
   onEditEnd(id: string): void;
   onDeleteRequest(id: string): void;
+  onToggleSelect?(id: string): void;
+  onPlainClick?(id: string): void;
+  /** Deltas are unclamped; the Board previews every selected view and commits on 'end'. */
+  onGroupMove?(id: string, dx: number, dy: number, phase: 'move' | 'end' | 'cancel'): void;
 }
 
 const DRAG_THRESHOLD = 4;
@@ -24,6 +29,7 @@ interface Gesture {
   startY: number;
   pointerId: number | undefined;
   active: boolean; // false while a body press is still below the drag threshold
+  group: boolean; // moving a selected note: report deltas instead of moving ourselves
 }
 
 export class StickyView {
@@ -33,6 +39,7 @@ export class StickyView {
   private textarea: HTMLTextAreaElement | null = null;
   private gesture: Gesture | null = null;
   private suppressClick = false;
+  private isSelected = false;
   private renderedText: string | null = null;
   private readonly toolsEl: HTMLElement;
   private readonly swatchesEl: HTMLElement;
@@ -112,6 +119,20 @@ export class StickyView {
     return this.textarea !== null;
   }
 
+  get selected(): boolean {
+    return this.isSelected;
+  }
+
+  setSelected(selected: boolean): void {
+    this.isSelected = selected;
+    this.el.classList.toggle('selected', selected);
+  }
+
+  preview(dx: number, dy: number): void {
+    this.el.style.left = `${this.sticky.x + dx}px`;
+    this.el.style.top = `${this.sticky.y + dy}px`;
+  }
+
   update(sticky: Sticky): void {
     this.sticky = sticky;
     this.apply();
@@ -181,6 +202,11 @@ export class StickyView {
 
   private onClick(e: MouseEvent): void {
     const t = e.target as HTMLElement;
+    // The click after a modifier press: never edit, tick a checkbox or follow a link.
+    if (isSelectModifier(e) && !this.ownTextarea(t)) {
+      e.preventDefault();
+      return;
+    }
     const dot = t.closest<HTMLElement>('.sticky-dot');
     if (dot) {
       this.setSwatchesOpen(false);
@@ -195,6 +221,7 @@ export class StickyView {
       this.cb.onDeleteRequest(this.sticky.id);
       return;
     }
+    if (!this.suppressClick) this.cb.onPlainClick?.(this.sticky.id);
     if (!this.bodyEl.contains(t) || this.editing) return;
     const box = t.closest<HTMLInputElement>('input[data-task-index]');
     if (box) {
@@ -213,22 +240,31 @@ export class StickyView {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    this.cb.onActivate(this.sticky.id);
     this.suppressClick = false;
-    if (e.button !== 0) return;
     const t = e.target as HTMLElement;
+    if (e.button === 0 && isSelectModifier(e) && !this.ownTextarea(t)) {
+      e.preventDefault();
+      this.cb.onToggleSelect?.(this.sticky.id);
+      return;
+    }
     let kind: Gesture['kind'] | null = null;
     let active = true;
     if (t.closest('.sticky-resize')) kind = 'resize';
-    else if (t.closest('.sticky-dot, .sticky-palette, .sticky-delete')) return;
+    else if (t.closest('.sticky-dot, .sticky-palette, .sticky-delete')) kind = null;
     else if (t.closest('.sticky-bar')) kind = 'move';
     else if (!this.editing && this.bodyEl.contains(t) && !t.closest('a, input')) {
       kind = 'move';
       active = false;
     }
-    if (!kind) return;
-    this.gesture = { kind, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, active };
+    const group = kind === 'move' && this.isSelected && e.button === 0;
+    if (!group) this.cb.onActivate(this.sticky.id);
+    if (e.button !== 0 || !kind) return;
+    this.gesture = { kind, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, active, group };
     if (active) this.activate();
+  }
+
+  private ownTextarea(t: HTMLElement): boolean {
+    return !!this.textarea && this.textarea.contains(t);
   }
 
   private activate(): void {
@@ -255,6 +291,10 @@ export class StickyView {
       if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
       g.active = true;
       this.activate();
+    }
+    if (g.group) {
+      this.cb.onGroupMove?.(this.sticky.id, dx, dy, 'move');
+      return;
     }
     const geo = this.geometry(g, dx, dy);
     const st = this.el.style;
@@ -284,15 +324,21 @@ export class StickyView {
     this.el.classList.remove('dragging');
     if (!g.active) return;
     this.suppressClick = true;
+    if (g.group) {
+      this.cb.onGroupMove?.(this.sticky.id, e.clientX - g.startX, e.clientY - g.startY, 'end');
+      return;
+    }
     const geo = this.geometry(g, e.clientX - g.startX, e.clientY - g.startY);
     const changes = g.kind === 'move' ? { x: geo.x, y: geo.y } : { width: geo.width, height: geo.height };
     this.cb.onChange(this.sticky.id, changes, { debounce: false });
   }
 
   private cancelGesture(): void {
-    if (!this.gesture) return;
+    const g = this.gesture;
+    if (!g) return;
     this.gesture = null;
     this.el.classList.remove('dragging');
+    if (g.group && g.active) this.cb.onGroupMove?.(this.sticky.id, 0, 0, 'cancel');
     this.apply(); // snap back to the stored geometry
   }
 }

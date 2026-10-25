@@ -58,3 +58,120 @@
   background: var(--danger);
   border-color: var(--danger);
 }
+
+/* Stickies */
+:root {
+  --sticky-yellow: #fff3a3;
+  --sticky-pink: #ffc9de;
+  --sticky-blue: #bfe3ff;
+  --sticky-green: #c8f0c0;
+  --sticky-purple: #dccbff;
+}
+
+.sticky {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 140px;
+  min-height: 100px;
+  color: var(--text);
+  background: var(--sticky-yellow);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sticky--yellow { background: var(--sticky-yellow); }
+.sticky--pink { background: var(--sticky-pink); }
+.sticky--blue { background: var(--sticky-blue); }
+.sticky--green { background: var(--sticky-green); }
+.sticky--purple { background: var(--sticky-purple); }
+
+.sticky-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px 4px 0 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.sticky-colors {
+  display: flex;
+  gap: 4px;
+}
+
+.sticky-dot {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.sticky-dot--yellow { background: var(--sticky-yellow); }
+.sticky-dot--pink { background: var(--sticky-pink); }
+.sticky-dot--blue { background: var(--sticky-blue); }
+.sticky-dot--green { background: var(--sticky-green); }
+.sticky-dot--purple { background: var(--sticky-purple); }
+
+.sticky-delete {
+  padding: 0 4px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.sticky-dot:focus-visible,
+.sticky-delete:focus-visible,
+.sticky-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sticky-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.sticky-body > :first-child { margin-top: 0; }
+.sticky-body > :last-child { margin-bottom: 0; }
+.sticky-body pre { overflow-x: auto; }
+
+.sticky-text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+}
+
+.sticky-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.35) 50%);
+  border-radius: 0 0 4px 0;
+}

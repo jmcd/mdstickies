@@ -28,7 +28,7 @@ export class Board {
   private readonly views = new Map<string, StickyView>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   private editingId: string | null = null;
-  private dialogOpen = false;
+  private dialogs = 0;
   private readonly selected = new Set<string>();
   private readonly selectionBar = document.createElement('div');
   private readonly selectionCount = document.createElement('span');
@@ -196,11 +196,11 @@ export class Board {
   // --- selection ---
 
   private async ask(opts: Parameters<BoardDeps['dialog']>[0]): Promise<string> {
-    this.dialogOpen = true;
+    this.dialogs++;
     try {
       return await this.deps.dialog(opts);
     } finally {
-      this.dialogOpen = false;
+      this.dialogs--;
     }
   }
 
@@ -269,7 +269,7 @@ export class Board {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (this.dialogOpen || this.editingId !== null) return;
+    if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {

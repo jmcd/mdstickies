@@ -53,11 +53,19 @@ function pointerdown(el: Element) {
   el.dispatchEvent(typeof PointerEvent !== 'undefined' ? new PointerEvent('pointerdown', init) : new MouseEvent('pointerdown', init));
 }
 
+const docKeyListeners: EventListener[] = [];
+const realAdd = document.addEventListener.bind(document);
+document.addEventListener = ((type: string, fn: EventListener, o?: unknown) => {
+  if (type === 'keydown') docKeyListeners.push(fn);
+  realAdd(type, fn, o as AddEventListenerOptions);
+}) as typeof document.addEventListener;
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-25T12:00:00.000Z'));
 });
 afterEach(() => {
+  for (const fn of docKeyListeners.splice(0)) document.removeEventListener('keydown', fn); // boards from earlier tests stay alive
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -609,5 +617,32 @@ describe('selection', () => {
     const { store, root } = two();
     shiftClick(root, 'a');
     expect(store.get('a')!.updatedAt).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  it('an already-prevented Escape or Ctrl+A leaves the selection alone', () => {
+    const { board, root } = two();
+    shiftClick(root, 'b');
+    const prevented = (k: string, extra: KeyboardEventInit = {}) => {
+      const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra });
+      e.preventDefault();
+      document.body.dispatchEvent(e);
+    };
+    prevented('Escape');
+    prevented('a', { ctrlKey: true });
+    expect(board.selectedIds()).toEqual(['b']);
+  });
+
+  it('pointercancel during a drag-box removes the box and the next press works', () => {
+    const { board, root } = two();
+    const el = boardEl(root);
+    ptr(el, 'pointerdown', 0, 0);
+    ptr(el, 'pointermove', 100, 100);
+    ptr(el, 'pointercancel', 100, 100);
+    expect(root.querySelector('.marquee')).toBeNull();
+    expect(board.selectedIds()).toEqual(['a']);
+    ptr(el, 'pointerdown', 400, 250);
+    ptr(el, 'pointermove', 600, 400);
+    expect(board.selectedIds()).toEqual(['b']);
+    ptr(el, 'pointerup', 600, 400);
   });
 });

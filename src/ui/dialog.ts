@@ -4,13 +4,17 @@ export interface DialogButton {
   danger?: boolean;
 }
 
+let active: { dismiss: () => void; previous: HTMLElement | null } | null = null;
+
 export function showDialog(opts: {
   message: string;
   buttons: DialogButton[];
   cancelId: string;
 }): Promise<string> {
   return new Promise((resolve) => {
-    const previous = document.activeElement as HTMLElement | null;
+    // Only one dialog at a time: cancel any open one, and keep the original focus target.
+    const previous = active ? active.previous : (document.activeElement as HTMLElement | null);
+    active?.dismiss();
 
     const backdrop = document.createElement('div');
     backdrop.className = 'dialog-backdrop';
@@ -31,6 +35,7 @@ export function showDialog(opts: {
     const finish = (id: string): void => {
       if (done) return;
       done = true;
+      active = null;
       document.removeEventListener('keydown', onKey, true);
       backdrop.remove();
       previous?.focus();
@@ -42,6 +47,8 @@ export function showDialog(opts: {
         finish(opts.cancelId);
       }
     };
+
+    active = { dismiss: () => finish(opts.cancelId), previous };
 
     let first: HTMLButtonElement | null = null;
     for (const b of opts.buttons) {

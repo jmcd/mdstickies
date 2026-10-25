@@ -65,4 +65,19 @@ describe('showDialog', () => {
     await p;
     expect(document.activeElement).toBe(opener);
   });
+
+  it('a second dialog cancels the first, leaving one in the DOM', async () => {
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    const first = showDialog({ message: 'One', buttons, cancelId: 'cancel' });
+    const second = showDialog({ message: 'Two', buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'esc' });
+    expect(await first).toBe('cancel');
+    expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+    expect(document.querySelector('.dialog-message')!.textContent).toBe('Two');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(await second).toBe('esc');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
 });

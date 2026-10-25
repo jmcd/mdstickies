@@ -49,6 +49,8 @@ export function renderMarkdown(text: string): string {
   const raw = marked.parse(text, { async: false });
   return DOMPurify.sanitize(raw, {
     ADD_TAGS: ['input'],
+    FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'option'],
+    FORBID_ATTR: ['style'],
     ADD_ATTR: ['data-task-index', 'data-task-nonce', 'checked', 'type', 'target'],
   });
 }

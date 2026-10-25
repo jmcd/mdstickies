@@ -102,3 +102,21 @@ test('toggle index matches rendered checkbox count and flips exactly that checkb
     }
   }
 });
+
+test('forbidden elements and style attributes are stripped', () => {
+  for (const tag of ['style', 'form', 'button', 'textarea', 'select', 'option']) {
+    const html = renderMarkdown(`<${tag}>x</${tag}>\n\ntext`);
+    expect(parse(html).querySelector(tag), tag).toBeNull();
+  }
+  expect(renderMarkdown('<style>*{display:none}</style>')).not.toContain('display');
+  const doc = parse(renderMarkdown('<p style="position:fixed">a</p>\n\n<div style="x:y">b</div>'));
+  expect(doc.querySelector('[style]')).toBeNull();
+});
+
+test('task checkboxes stay numbered and hljs output keeps classes', () => {
+  const doc = parse(renderMarkdown('- [ ] a\n- [x] b\n\n```js\nconst a = 1;\n```'));
+  const boxes = [...doc.querySelectorAll('input[type=checkbox]')];
+  expect(boxes.map((b) => b.getAttribute('data-task-index'))).toEqual(['0', '1']);
+  expect(doc.querySelector('code.hljs.language-js .hljs-keyword')).not.toBeNull();
+  expect(doc.querySelector('[style]')).toBeNull();
+});

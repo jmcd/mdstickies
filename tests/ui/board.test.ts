@@ -300,7 +300,6 @@ describe('Board', () => {
     board.applyRemote({ kind: 'upsert', sticky: sticky({ id: 'b', x: 40, updatedAt: '2026-10-02T00:00:00.000Z' }) });
     expect(viewOf(root, 'b').style.left).toBe('40px');
 
-    store.remove('b');
     board.applyRemote({ kind: 'remove', id: 'b' });
     expect(viewOf(root, 'b')).toBeNull();
 
@@ -718,5 +717,122 @@ describe('group move', () => {
     expect(pos(board, 'c')).toEqual([650, 150]);
     expect(pos(board, 'a')).toEqual([10, 20]);
     expect(pos(board, 'b')).toEqual([300, 40]);
+  });
+});
+
+describe('selection actions', () => {
+  const four = () => setup({ saved: [
+    sticky({ id: 'a', x: 10, y: 20, z: 1 }),
+    sticky({ id: 'b', x: 300, y: 40, z: 2, width: 300, height: 100 }),
+    sticky({ id: 'c', x: 600, y: 130, z: 3 }),
+    sticky({ id: 'd', x: 700, y: 500, z: 4 }),
+  ] });
+  const pick = (root: HTMLElement, ...ids: string[]) => ids.forEach((id) => shiftClick(root, id));
+  const act = (root: HTMLElement, label: string) => {
+    [...selectionBar(root).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label)!.click();
+  };
+  const geo = (store: StickyStore, id: string) => {
+    const s = store.get(id)!;
+    return [s.x, s.y, s.z, s.width, s.height];
+  };
+
+  it('Cascade piles the selection diagonally above everything else', () => {
+    const { root, store } = four();
+    pick(root, 'a', 'b', 'c');
+    act(root, 'Cascade');
+    expect(geo(store, 'a')).toEqual([10, 20, 5, 220, 180]);
+    expect(geo(store, 'b')).toEqual([40, 50, 6, 300, 100]);
+    expect(geo(store, 'c')).toEqual([70, 80, 7, 220, 180]);
+    expect(geo(store, 'd')).toEqual([700, 500, 4, 220, 180]);
+  });
+
+  it('Grid lays the selection out in rows', () => {
+    const { root, store } = four();
+    pick(root, 'a', 'b', 'c');
+    act(root, 'Grid');
+    // 2 columns, cells 300x180, gap 16, origin (10, 20)
+    expect(geo(store, 'a').slice(0, 2)).toEqual([10, 20]);
+    expect(geo(store, 'b').slice(0, 2)).toEqual([326, 20]);
+    expect(geo(store, 'c').slice(0, 2)).toEqual([10, 216]);
+  });
+
+  it('Align left and Align top use the smallest x / y', () => {
+    const { root, store } = four();
+    pick(root, 'b', 'c');
+    act(root, 'Align left');
+    expect([store.get('b')!.x, store.get('c')!.x]).toEqual([300, 300]);
+    act(root, 'Align top');
+    expect([store.get('b')!.y, store.get('c')!.y]).toEqual([40, 40]);
+    expect(store.get('d')!.x).toBe(700);
+  });
+
+  it('Same size gives every selected note the largest size', () => {
+    const { root, store } = four();
+    pick(root, 'a', 'b');
+    act(root, 'Same size');
+    expect(geo(store, 'a').slice(3)).toEqual([220, 180]);
+    expect(geo(store, 'b').slice(3)).toEqual([220, 180]);
+    expect(geo(store, 'c').slice(3)).toEqual([220, 180]);
+  });
+
+  it('Front raises the selection above unselected notes', () => {
+    const { root, store } = four();
+    pick(root, 'a', 'b');
+    act(root, 'Front');
+    expect(store.get('a')!.z).toBe(5);
+    expect(store.get('b')!.z).toBe(6);
+    expect(store.get('d')!.z).toBe(4);
+  });
+
+  it('the colour control recolours every selected note and leaves others alone', () => {
+    const { root, store, board } = four();
+    pick(root, 'a', 'c');
+    const palette = selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Colour selected"]')!;
+    const dots = selectionBar(root).querySelector<HTMLElement>('.selection-colors')!;
+    expect(dots.hidden).toBe(true);
+    palette.click();
+    expect(dots.hidden).toBe(false);
+    expect(palette.getAttribute('aria-expanded')).toBe('true');
+    dots.querySelector<HTMLButtonElement>('[aria-label="Colour pink"]')!.click();
+    expect(['a', 'b', 'c', 'd'].map((id) => store.get(id)!.color)).toEqual(['pink', 'yellow', 'pink', 'yellow']);
+    expect(dots.hidden).toBe(true);
+    expect(sorted(board)).toEqual(['a', 'c']);
+  });
+
+  it('Escape closes the colour dots without clearing the selection; a press outside closes them too', () => {
+    const { root, board } = four();
+    pick(root, 'a');
+    const palette = selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Colour selected"]')!;
+    const dots = selectionBar(root).querySelector<HTMLElement>('.selection-colors')!;
+    palette.click();
+    key(palette, 'Escape');
+    expect(dots.hidden).toBe(true);
+    expect(board.selectedIds()).toEqual(['a']);
+    key(document.body, 'Escape');
+    expect(board.selectedIds()).toEqual([]);
+    pick(root, 'a');
+    palette.click();
+    pointerdown(document.body);
+    expect(dots.hidden).toBe(true);
+    expect(palette.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Export selected downloads only the selected notes', () => {
+    const { root, store, deps } = four();
+    pick(root, 'a', 'c');
+    act(root, 'Export selected');
+    expect(deps.download).toHaveBeenCalledWith(
+      exportFileName(new Date()),
+      serializeBoard([store.get('a')!, store.get('c')!]),
+    );
+  });
+
+  it('actions keep the selection', () => {
+    const { root, board } = four();
+    pick(root, 'a', 'b');
+    for (const l of ['Cascade', 'Grid', 'Align left', 'Align top', 'Same size', 'Front', 'Export selected']) {
+      act(root, l);
+      expect(sorted(board)).toEqual(['a', 'b']);
+    }
   });
 });

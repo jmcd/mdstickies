@@ -1,11 +1,11 @@
-import { clampDelta, normalizeRect, touches } from '../arrange';
-import { createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
+import { alignLeft, alignTop, cascade, clampDelta, grid, normalizeRect, sameSize, toFront, touches, type Layout } from '../arrange';
+import { COLORS, createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
 import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard } from '../format';
 import { parseStorageEvent, resolveRemote, StorageFailure, type RemoteChange, type StickyStore } from '../store';
 import type { showDialog } from './dialog';
 import type { downloadFile, pickFile } from './files';
 import { isPrimaryShortcut, isSelectModifier } from './keys';
-import { StickyView } from './stickyView';
+import { PALETTE_ICON, StickyView } from './stickyView';
 
 export interface BoardDeps {
   dialog: typeof showDialog;
@@ -32,6 +32,8 @@ export class Board {
   private readonly selected = new Set<string>();
   private readonly selectionBar = document.createElement('div');
   private readonly selectionCount = document.createElement('span');
+  private readonly colourDots = document.createElement('div');
+  private readonly colourButton = document.createElement('button');
   private box: { x: number; y: number; base: Set<string>; el: HTMLElement | null } | null = null;
   private readonly boardEl = document.createElement('div');
   private readonly banner = document.createElement('div');
@@ -65,11 +67,24 @@ export class Board {
     this.selectionBar.className = 'selection-bar';
     this.selectionBar.hidden = true;
     this.selectionCount.className = 'selection-count';
-    const deselect = document.createElement('button');
-    deselect.type = 'button';
-    deselect.textContent = 'Deselect';
-    deselect.addEventListener('click', () => this.setSelection([]));
-    this.selectionBar.append(this.selectionCount, deselect);
+    this.selectionBar.append(this.selectionCount);
+    const actions: Array<[string, () => void]> = [
+      ['Cascade', () => this.applyLayout(cascade(this.selectedStickies(), this.maxZ()))],
+      ['Grid', () => this.applyLayout(grid(this.selectedStickies()))],
+      ['Align left', () => this.applyLayout(alignLeft(this.selectedStickies()))],
+      ['Align top', () => this.applyLayout(alignTop(this.selectedStickies()))],
+      ['Same size', () => this.applyLayout(sameSize(this.selectedStickies()))],
+      ['Front', () => this.applyLayout(toFront(this.selectedStickies(), this.maxZ()))],
+    ];
+    for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
+    this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
+    this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
+    // Escape closes open colour dots first; preventDefault makes onKey leave the selection alone.
+    this.selectionBar.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || this.colourDots.hidden) return;
+      e.preventDefault();
+      this.setColourOpen(false);
+    });
     toolbar.append(this.selectionBar);
 
     this.banner.className = 'banner';
@@ -214,6 +229,68 @@ export class Board {
     for (const [id, v] of this.views) v.setSelected(this.selected.has(id));
     this.selectionBar.hidden = this.selected.size === 0;
     this.selectionCount.textContent = `${this.selected.size} selected`;
+    if (this.selected.size === 0) this.setColourOpen(false);
+  }
+
+  private barButton(label: string, run: () => void): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', run);
+    return b;
+  }
+
+  private colourControl(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'selection-colour';
+    const palette = this.colourButton;
+    palette.type = 'button';
+    palette.className = 'selection-palette';
+    palette.setAttribute('aria-label', 'Colour selected');
+    palette.setAttribute('aria-expanded', 'false');
+    palette.innerHTML = PALETTE_ICON;
+    palette.addEventListener('click', () => this.setColourOpen(palette.getAttribute('aria-expanded') !== 'true'));
+    const dots = this.colourDots;
+    dots.className = 'selection-colors';
+    dots.hidden = true;
+    for (const color of COLORS) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = `sticky-dot sticky-dot--${color}`;
+      dot.setAttribute('aria-label', `Colour ${color}`);
+      dot.addEventListener('click', () => {
+        for (const s of this.selectedStickies()) this.change(s.id, { color }, false);
+        this.setColourOpen(false);
+      });
+      dots.append(dot);
+    }
+    wrap.append(palette, dots);
+    this.colourWrap = wrap;
+    return wrap;
+  }
+
+  private colourWrap: HTMLElement | null = null;
+
+  private readonly onColourOutside = (e: Event): void => {
+    if (!this.colourWrap?.contains(e.target as Node)) this.setColourOpen(false);
+  };
+
+  private setColourOpen(open: boolean): void {
+    if (this.colourDots.hidden === !open) return;
+    this.colourDots.hidden = !open;
+    this.colourButton.setAttribute('aria-expanded', String(open));
+    if (open) document.addEventListener('pointerdown', this.onColourOutside, true);
+    else document.removeEventListener('pointerdown', this.onColourOutside, true);
+  }
+
+  private applyLayout(layout: Layout): void {
+    for (const { id, changes } of layout) this.change(id, changes, false); // change() skips ids no longer present
+    this.resize();
+  }
+
+  private exportSelected(): void {
+    const sel = this.selectedStickies();
+    if (sel.length) this.deps.download(exportFileName(this.now()), serializeBoard(sel));
   }
 
   private toggleSelect(id: string): void {

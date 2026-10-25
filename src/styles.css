@@ -326,3 +326,29 @@ body {
 }
 
 .selection-bar[hidden] { display: none; }
+
+.selection-colour {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.selection-colors {
+  display: flex;
+  gap: 4px;
+}
+
+.selection-colors[hidden] { display: none; }
+
+/* .selection-bar button (0,1,1) would otherwise beat the plain dot rules. */
+.selection-bar .sticky-dot { padding: 0; border-color: rgba(0, 0, 0, 0.35); border-radius: 3px; }
+.selection-bar .sticky-dot--yellow { background: var(--sticky-yellow); }
+.selection-bar .sticky-dot--pink { background: var(--sticky-pink); }
+.selection-bar .sticky-dot--blue { background: var(--sticky-blue); }
+.selection-bar .sticky-dot--green { background: var(--sticky-green); }
+.selection-bar .sticky-dot--purple { background: var(--sticky-purple); }
+
+.selection-palette {
+  display: flex;
+  align-items: center;
+}

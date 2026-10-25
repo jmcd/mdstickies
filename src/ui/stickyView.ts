@@ -251,7 +251,10 @@ export class StickyView {
     let active = true;
     if (t.closest('.sticky-resize')) kind = 'resize';
     else if (t.closest('.sticky-dot, .sticky-palette, .sticky-delete')) kind = null;
-    else if (t.closest('.sticky-bar')) kind = 'move';
+    else if (t.closest('.sticky-bar')) {
+      kind = 'move';
+      active = !(this.isSelected && e.button === 0); // a selected note waits for the threshold so a click stays a click
+    }
     else if (!this.editing && this.bodyEl.contains(t) && !t.closest('a, input')) {
       kind = 'move';
       active = false;
@@ -323,7 +326,7 @@ export class StickyView {
     this.gesture = null;
     this.el.classList.remove('dragging');
     if (!g.active) return;
-    this.suppressClick = true;
+    if (e.clientX !== g.startX || e.clientY !== g.startY) this.suppressClick = true;
     if (g.group) {
       this.cb.onGroupMove?.(this.sticky.id, e.clientX - g.startX, e.clientY - g.startY, 'end');
       return;

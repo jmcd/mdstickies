@@ -534,6 +534,40 @@ describe('selection', () => {
     expect(cb.onPlainClick).not.toHaveBeenCalled();
   });
 
+  it('a bar click on a selected note fires no group phases and reports onPlainClick', () => {
+    const { view, cb } = makeSel();
+    view.setSelected(true);
+    ptr(bar(view), 'pointerdown', 0, 0);
+    ptr(bar(view), 'pointermove', 1, 1);
+    ptr(bar(view), 'pointerup', 1, 1);
+    click(bar(view));
+    expect(cb.onGroupMove).not.toHaveBeenCalled();
+    expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
+  });
+
+  it('a bar click on an unselected note reports onPlainClick', () => {
+    const { view, cb } = makeSel();
+    ptr(bar(view), 'pointerdown', 0, 0);
+    ptr(bar(view), 'pointerup', 0, 0);
+    click(bar(view));
+    expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
+  });
+
+  it('modifier press+click on x, a dot and the resize corner only toggles selection', () => {
+    const { view, cb } = makeSel();
+    (view.el.querySelector('.sticky-palette') as HTMLElement).click();
+    for (const sel of ['.sticky-delete', '.sticky-dot--blue', '.sticky-resize']) {
+      const t = view.el.querySelector(sel)!;
+      ptr(t, 'pointerdown', 0, 0, { shiftKey: true });
+      ptr(t, 'pointerup', 0, 0, { shiftKey: true });
+      click(t, { shiftKey: true });
+    }
+    expect(cb.onToggleSelect).toHaveBeenCalledTimes(3);
+    expect(cb.onDeleteRequest).not.toHaveBeenCalled();
+    expect(cb.onChange).not.toHaveBeenCalled();
+    expect(cb.onActivate).not.toHaveBeenCalled();
+  });
+
   it('the selected outline is drawn from .sticky.selected', () => {
     const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
     expect(css).toMatch(/\.sticky\.selected\s*\{[^}]*outline/);

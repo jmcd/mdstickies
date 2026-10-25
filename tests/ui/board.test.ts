@@ -243,6 +243,18 @@ describe('Board', () => {
     expect(store.loadAll().map((s) => s.id)).toEqual(['c']);
   });
 
+  it('Import failing for a non-ImportError shows a generic dialog instead of rejecting', async () => {
+    const { board, root, deps } = setup({ saved: [sticky({ id: 'c' })], answers: ['ok'] });
+    deps.pickFile.mockRejectedValueOnce(new Error('read failed'));
+    await board.importBoard();
+    expect(deps.dialog).toHaveBeenCalledWith({
+      message: "Couldn't read that file.",
+      buttons: [{ id: 'ok', label: 'OK' }],
+      cancelId: 'ok',
+    });
+    expect(views(root)).toHaveLength(1);
+  });
+
   it('storage failure shows the banner and keeps the note in memory', () => {
     const storage = new FakeStorage();
     const { board, root } = setup({ storage });

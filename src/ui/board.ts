@@ -99,14 +99,14 @@ export class Board {
   }
 
   async importBoard(): Promise<void> {
-    const json = await this.deps.pickFile();
-    if (json === null) return;
     let imported: Sticky[];
     try {
+      const json = await this.deps.pickFile();
+      if (json === null) return;
       imported = parseBoardFile(json);
     } catch (e) {
-      if (!(e instanceof ImportError)) throw e;
-      await this.deps.dialog({ message: e.message, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
+      const message = e instanceof ImportError ? e.message : "Couldn't read that file.";
+      await this.deps.dialog({ message, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
       return;
     }
     if (this.notes.size > 0) {

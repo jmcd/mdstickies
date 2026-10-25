@@ -1,8 +1,10 @@
+import { normalizeRect, touches } from '../arrange';
 import { createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
 import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard } from '../format';
 import { parseStorageEvent, resolveRemote, StorageFailure, type RemoteChange, type StickyStore } from '../store';
 import type { showDialog } from './dialog';
 import type { downloadFile, pickFile } from './files';
+import { isPrimaryShortcut, isSelectModifier } from './keys';
 import { StickyView } from './stickyView';
 
 export interface BoardDeps {
@@ -14,6 +16,7 @@ export interface BoardDeps {
 
 const TEXT_DEBOUNCE_MS = 300;
 const BOARD_MARGIN = 200;
+const DRAG_THRESHOLD = 4;
 const BANNER_TEXT = "Couldn't save — your browser storage is full or unavailable. Export to keep a copy.";
 
 type Changes = Partial<Omit<Sticky, 'id' | 'createdAt'>>;
@@ -25,6 +28,11 @@ export class Board {
   private readonly views = new Map<string, StickyView>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   private editingId: string | null = null;
+  private dialogOpen = false;
+  private readonly selected = new Set<string>();
+  private readonly selectionBar = document.createElement('div');
+  private readonly selectionCount = document.createElement('span');
+  private box: { x: number; y: number; base: Set<string>; el: HTMLElement | null } | null = null;
   private readonly boardEl = document.createElement('div');
   private readonly banner = document.createElement('div');
   private readonly now: () => Date;
@@ -54,6 +62,16 @@ export class Board {
       toolbar.append(b);
     }
 
+    this.selectionBar.className = 'selection-bar';
+    this.selectionBar.hidden = true;
+    this.selectionCount.className = 'selection-count';
+    const deselect = document.createElement('button');
+    deselect.type = 'button';
+    deselect.textContent = 'Deselect';
+    deselect.addEventListener('click', () => this.setSelection([]));
+    this.selectionBar.append(this.selectionCount, deselect);
+    toolbar.append(this.selectionBar);
+
     this.banner.className = 'banner';
     this.banner.setAttribute('role', 'alert');
     const msg = document.createElement('span');
@@ -69,6 +87,13 @@ export class Board {
     this.boardEl.className = 'board';
     this.root.replaceChildren(toolbar, this.boardEl);
 
+    this.boardEl.addEventListener('pointerdown', (e) => this.boxStart(e));
+    this.boardEl.addEventListener('pointermove', (e) => this.boxMove(e));
+    this.boardEl.addEventListener('pointerup', () => this.boxEnd(true));
+    this.boardEl.addEventListener('pointercancel', () => this.boxEnd(false));
+    this.boardEl.addEventListener('lostpointercapture', () => this.boxEnd(false));
+    document.addEventListener('keydown', (e) => this.onKey(e));
+
     for (const s of this.store.loadAll()) this.upsertView(s);
     this.resize();
 
@@ -81,6 +106,10 @@ export class Board {
 
   stickies(): Sticky[] {
     return [...this.notes.values()];
+  }
+
+  selectedIds(): string[] {
+    return [...this.selected];
   }
 
   newSticky(): Sticky {
@@ -106,11 +135,11 @@ export class Board {
       imported = parseBoardFile(json);
     } catch (e) {
       const message = e instanceof ImportError ? e.message : "Couldn't read that file.";
-      await this.deps.dialog({ message, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
+      await this.ask({ message, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
       return;
     }
     if (this.notes.size > 0) {
-      const answer = await this.deps.dialog({
+      const answer = await this.ask({
         message: `Import ${imported.length} notes. Replace your current board or add them?`,
         buttons: [
           { id: 'replace', label: 'Replace', danger: true },
@@ -132,7 +161,7 @@ export class Board {
 
   async clearBoard(): Promise<void> {
     if (this.notes.size === 0) return;
-    const answer = await this.deps.dialog({
+    const answer = await this.ask({
       message: `Delete all ${this.notes.size} notes? This can't be undone.`,
       buttons: [{ id: 'clear', label: 'Clear board', danger: true }, { id: 'cancel', label: 'Cancel' }],
       cancelId: 'cancel',
@@ -162,6 +191,93 @@ export class Board {
 
   flush(): void {
     for (const id of [...this.pending.keys()]) this.flushOne(id);
+  }
+
+  // --- selection ---
+
+  private async ask(opts: Parameters<BoardDeps['dialog']>[0]): Promise<string> {
+    this.dialogOpen = true;
+    try {
+      return await this.deps.dialog(opts);
+    } finally {
+      this.dialogOpen = false;
+    }
+  }
+
+  private selectedStickies(): Sticky[] {
+    return [...this.selected].map((id) => this.notes.get(id)).filter((s): s is Sticky => !!s);
+  }
+
+  private setSelection(ids: Iterable<string>): void {
+    this.selected.clear();
+    for (const id of ids) if (this.notes.has(id)) this.selected.add(id);
+    for (const [id, v] of this.views) v.setSelected(this.selected.has(id));
+    this.selectionBar.hidden = this.selected.size === 0;
+    this.selectionCount.textContent = `${this.selected.size} selected`;
+  }
+
+  private toggleSelect(id: string): void {
+    this.blurEdit();
+    const next = new Set(this.selected);
+    if (!next.delete(id)) next.add(id);
+    this.setSelection(next);
+  }
+
+  private blurEdit(): void {
+    if (this.editingId !== null && document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
+  }
+
+  private local(e: PointerEvent): [number, number] {
+    const r = this.boardEl.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+
+  private boxStart(e: PointerEvent): void {
+    if (e.target !== this.boardEl || e.button !== 0) return;
+    this.boxEnd(false);
+    this.blurEdit();
+    const [x, y] = this.local(e);
+    this.box = { x, y, base: isSelectModifier(e) ? new Set(this.selected) : new Set(), el: null };
+    try { this.boardEl.setPointerCapture?.(e.pointerId); } catch { /* synthetic or released pointer */ }
+  }
+
+  private boxMove(e: PointerEvent): void {
+    const box = this.box;
+    if (!box) return;
+    if (e.buttons === 0) return this.boxEnd(false);
+    const [x, y] = this.local(e);
+    if (!box.el && Math.hypot(x - box.x, y - box.y) < DRAG_THRESHOLD) return;
+    if (!box.el) {
+      box.el = document.createElement('div');
+      box.el.className = 'marquee';
+      this.boardEl.append(box.el);
+      this.boardEl.classList.add('selecting');
+    }
+    const r = normalizeRect(box.x, box.y, x, y);
+    Object.assign(box.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const hit = this.stickies().filter((s) => touches(r, s)).map((s) => s.id);
+    this.setSelection([...box.base, ...hit]);
+  }
+
+  private boxEnd(up: boolean): void {
+    const box = this.box;
+    if (!box) return;
+    this.box = null;
+    box.el?.remove();
+    this.boardEl.classList.remove('selecting');
+    if (up && !box.el && box.base.size === 0) this.setSelection([]);
+  }
+
+  private onKey(e: KeyboardEvent): void {
+    if (this.dialogOpen || this.editingId !== null) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      this.setSelection(this.notes.keys());
+    } else if (e.key === 'Escape') {
+      this.setSelection([]);
+    }
   }
 
   // --- local changes ---
@@ -205,7 +321,7 @@ export class Board {
     const s = this.notes.get(id);
     if (!s) return;
     if (s.text.trim() !== '') {
-      const answer = await this.deps.dialog({
+      const answer = await this.ask({
         message: 'Delete this note?',
         buttons: [{ id: 'delete', label: 'Delete', danger: true }, { id: 'cancel', label: 'Cancel' }],
         cancelId: 'cancel',
@@ -226,7 +342,9 @@ export class Board {
     const view = new StickyView(s, {
       onChange: (id, changes, { debounce }) => this.change(id, changes, debounce),
       onActivate: (id) => this.activate(id),
-      onEditStart: (id) => { this.editingId = id; },
+      onEditStart: (id) => { this.editingId = id; this.setSelection([]); },
+      onToggleSelect: (id) => this.toggleSelect(id),
+      onPlainClick: () => this.setSelection([]),
       onEditEnd: (id) => this.endEdit(id),
       onDeleteRequest: (id) => void this.requestDelete(id),
     });
@@ -240,11 +358,13 @@ export class Board {
     this.views.get(id)?.el.remove();
     this.views.delete(id);
     this.notes.delete(id);
+    if (this.selected.delete(id)) this.setSelection([...this.selected]);
   }
 
   private clearLocal(): void {
     for (const id of [...this.notes.keys()]) this.removeLocal(id);
     this.editingId = null;
+    this.setSelection([]);
   }
 
   private clearEverywhere(): void {

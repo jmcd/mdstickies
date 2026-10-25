@@ -446,3 +446,168 @@ describe('Board', () => {
     expect(a.board.stickies()).toEqual([]);
   });
 });
+
+function ptr(target: Element, type: string, x: number, y: number, extra: { button?: number; buttons?: number; shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean } = {}) {
+  const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1, ...extra };
+  target.dispatchEvent(
+    typeof PointerEvent !== 'undefined' ? new PointerEvent(type, init) : new MouseEvent(type, init),
+  );
+}
+const selectionBar = (root: HTMLElement) => root.querySelector<HTMLElement>('.selection-bar')!;
+const boardEl = (root: HTMLElement) => root.querySelector<HTMLElement>('.board')!;
+const bar = (root: HTMLElement, id: string) => viewOf(root, id).querySelector<HTMLElement>('.sticky-bar')!;
+const shiftClick = (root: HTMLElement, id: string) => ptr(bar(root, id), 'pointerdown', 5, 5, { shiftKey: true });
+const key = (target: EventTarget, k: string, extra: KeyboardEventInit = {}) => {
+  const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra });
+  target.dispatchEvent(e);
+  return e;
+};
+const two = () => setup({ saved: [sticky({ id: 'a' }), sticky({ id: 'b', x: 500, y: 300 })] });
+const sorted = (b: Board) => b.selectedIds().sort();
+
+describe('selection', () => {
+  it('shift-clicking two notes selects both and shows "2 selected"; again deselects', () => {
+    const { board, root } = two();
+    expect(selectionBar(root).hidden).toBe(true);
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    expect(sorted(board)).toEqual(['a', 'b']);
+    expect(selectionBar(root).hidden).toBe(false);
+    expect(selectionBar(root).querySelector('.selection-count')!.textContent).toBe('2 selected');
+    shiftClick(root, 'a');
+    expect(board.selectedIds()).toEqual(['b']);
+  });
+
+  it('a plain click on a note clears the selection; Deselect clears it and hides the bar', () => {
+    const { board, root } = two();
+    shiftClick(root, 'a');
+    ptr(bar(root, 'b'), 'pointerdown', 5, 5);
+    ptr(bar(root, 'b'), 'pointerup', 5, 5);
+    bar(root, 'b').click();
+    expect(board.selectedIds()).toEqual([]);
+    shiftClick(root, 'a');
+    const d = [...selectionBar(root).querySelectorAll('button')].find((b) => b.textContent === 'Deselect')!;
+    d.click();
+    expect(board.selectedIds()).toEqual([]);
+    expect(selectionBar(root).hidden).toBe(true);
+  });
+
+  it('a drag-box selects every note it touches, live', () => {
+    const { board, root } = two();
+    const el = boardEl(root);
+    ptr(el, 'pointerdown', 0, 0);
+    ptr(el, 'pointermove', 100, 100);
+    expect(board.selectedIds()).toEqual(['a']);
+    expect(root.querySelector('.marquee')).not.toBeNull();
+    ptr(el, 'pointermove', 600, 400);
+    expect(sorted(board)).toEqual(['a', 'b']);
+    ptr(el, 'pointerup', 600, 400);
+    expect(root.querySelector('.marquee')).toBeNull();
+    expect(sorted(board)).toEqual(['a', 'b']);
+  });
+
+  it('a plain drag-box replaces the selection; a shift drag-box adds to it', () => {
+    const { board, root } = two();
+    const el = boardEl(root);
+    shiftClick(root, 'b');
+    ptr(el, 'pointerdown', 0, 0);
+    ptr(el, 'pointermove', 100, 100);
+    ptr(el, 'pointerup', 100, 100);
+    expect(board.selectedIds()).toEqual(['a']);
+    shiftClick(root, 'b');
+    ptr(el, 'pointerdown', 0, 0, { shiftKey: true });
+    ptr(el, 'pointermove', 100, 100, { shiftKey: true });
+    ptr(el, 'pointerup', 100, 100, { shiftKey: true });
+    expect(sorted(board)).toEqual(['a', 'b']);
+  });
+
+  it('a click on empty board clears the selection; a shift click does not', () => {
+    const { board, root } = two();
+    const el = boardEl(root);
+    shiftClick(root, 'a');
+    ptr(el, 'pointerdown', 300, 300, { shiftKey: true });
+    ptr(el, 'pointerup', 300, 300, { shiftKey: true });
+    expect(board.selectedIds()).toEqual(['a']);
+    ptr(el, 'pointerdown', 300, 300);
+    ptr(el, 'pointerup', 300, 300);
+    expect(board.selectedIds()).toEqual([]);
+  });
+
+  it('lostpointercapture during a drag-box removes the box and the next press works', () => {
+    const { board, root } = two();
+    const el = boardEl(root);
+    ptr(el, 'pointerdown', 0, 0);
+    ptr(el, 'pointermove', 100, 100);
+    ptr(el, 'lostpointercapture', 100, 100);
+    expect(root.querySelector('.marquee')).toBeNull();
+    expect(board.selectedIds()).toEqual(['a']);
+    ptr(el, 'pointerdown', 400, 250);
+    ptr(el, 'pointermove', 600, 400);
+    expect(board.selectedIds()).toEqual(['b']);
+    ptr(el, 'pointerup', 600, 400);
+  });
+
+  it('Ctrl+A selects all when not editing; Escape clears', () => {
+    const { board, root } = two();
+    const e = key(document.body, 'a', { ctrlKey: true });
+    expect(e.defaultPrevented).toBe(true);
+    expect(sorted(board)).toEqual(['a', 'b']);
+    key(document.body, 'Escape');
+    expect(board.selectedIds()).toEqual([]);
+  });
+
+  it('keys are ignored while a note is being edited or in a textarea', () => {
+    const { board, root } = two();
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    const ta = viewOf(root, 'a').querySelector('textarea')!;
+    key(ta, 'a', { ctrlKey: true });
+    key(document.body, 'a', { ctrlKey: true });
+    expect(board.selectedIds()).toEqual([]);
+  });
+
+  it('Escape or Ctrl+A in a textarea leave the selection alone', () => {
+    const { board, root } = two();
+    shiftClick(root, 'b');
+    const ta = document.createElement('textarea');
+    root.append(ta);
+    key(ta, 'Escape');
+    key(ta, 'a', { ctrlKey: true });
+    expect(board.selectedIds()).toEqual(['b']);
+  });
+
+  it('starting an edit clears the selection', () => {
+    const { board, root } = two();
+    shiftClick(root, 'b');
+    button(root, 'New').click();
+    expect(board.selectedIds()).toEqual([]);
+  });
+
+  it('modifier-clicking another note ends the edit in progress and saves its text', () => {
+    const { board, store, root } = two();
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    const ta = viewOf(root, 'a').querySelector('textarea')!;
+    ta.focus();
+    type(root, 'a', 'edited');
+    shiftClick(root, 'b');
+    expect(store.get('a')!.text).toBe('edited');
+    expect(board.selectedIds()).toEqual(['b']);
+  });
+
+  it('a note removed by another tab drops out; a remote clear empties it', () => {
+    const { board, root } = two();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    board.applyRemote({ kind: 'remove', id: 'a' });
+    expect(board.selectedIds()).toEqual(['b']);
+    expect(selectionBar(root).querySelector('.selection-count')!.textContent).toBe('1 selected');
+    board.applyRemote({ kind: 'clear' });
+    expect(board.selectedIds()).toEqual([]);
+    expect(selectionBar(root).hidden).toBe(true);
+  });
+
+  it('stickies are not saved just because they were selected', () => {
+    const { store, root } = two();
+    shiftClick(root, 'a');
+    expect(store.get('a')!.updatedAt).toBe('2026-10-01T00:00:00.000Z');
+  });
+});

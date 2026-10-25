@@ -261,7 +261,8 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.toolbar button {
+.toolbar button,
+.selection-bar button {
   padding: 6px 14px;
   font: inherit;
   color: var(--text);
@@ -306,3 +307,22 @@ body {
   z-index: 0; /* contain note z-indexes below the toolbar and dialogs */
   flex: 1;
 }
+
+.marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  background: rgba(37, 99, 235, 0.1);
+  pointer-events: none;
+  z-index: 999; /* under the dialog's 1000 */
+}
+
+.board.selecting { user-select: none; }
+
+.selection-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: 16px;
+}
+
+.selection-bar[hidden] { display: none; }

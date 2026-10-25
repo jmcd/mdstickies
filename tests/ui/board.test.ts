@@ -300,6 +300,7 @@ describe('Board', () => {
     board.applyRemote({ kind: 'upsert', sticky: sticky({ id: 'b', x: 40, updatedAt: '2026-10-02T00:00:00.000Z' }) });
     expect(viewOf(root, 'b').style.left).toBe('40px');
 
+    store.remove('b');
     board.applyRemote({ kind: 'remove', id: 'b' });
     expect(viewOf(root, 'b')).toBeNull();
 
@@ -644,5 +645,78 @@ describe('selection', () => {
     ptr(el, 'pointermove', 600, 400);
     expect(board.selectedIds()).toEqual(['b']);
     ptr(el, 'pointerup', 600, 400);
+  });
+});
+
+describe('group move', () => {
+  const trio = () => setup({ saved: [sticky({ id: 'a' }), sticky({ id: 'b', x: 300, y: 40, z: 2 }), sticky({ id: 'c', x: 600, y: 90, z: 3 })] });
+  const drag = (root: HTMLElement, id: string, dx: number, dy: number, end = 'pointerup') => {
+    ptr(bar(root, id), 'pointerdown', 100, 100);
+    ptr(bar(root, id), 'pointermove', 100 + dx, 100 + dy);
+    if (end) ptr(bar(root, id), end, 100 + dx, 100 + dy);
+  };
+  const pos = (s: Board, id: string) => { const n = s.stickies().find((x) => x.id === id)!; return [n.x, n.y]; };
+
+  it('dragging a selected note moves the whole selection and saves each once', () => {
+    const { board, root, store } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    const put = vi.spyOn(store, 'put');
+    drag(root, 'a', 50, 60);
+    expect(pos(board, 'a')).toEqual([60, 80]);
+    expect(pos(board, 'b')).toEqual([350, 100]);
+    expect(pos(board, 'c')).toEqual([600, 90]);
+    expect(board.stickies().map((s) => s.z)).toEqual([1, 2, 3]);
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(store.get('b')!.x).toBe(350);
+    expect(sorted(board)).toEqual(['a', 'b']);
+  });
+
+  it('a group drag stops at the edge together', () => {
+    const { board, root } = setup({ saved: [sticky({ id: 'a', x: 5 }), sticky({ id: 'b', x: 100 })] });
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    drag(root, 'b', -20, 0);
+    expect(pos(board, 'a')[0]).toBe(0);
+    expect(pos(board, 'b')[0]).toBe(95);
+  });
+
+  it('a group drag cancelled by lostpointercapture snaps every note back and saves nothing', () => {
+    const { board, root, store } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    const put = vi.spyOn(store, 'put');
+    drag(root, 'a', 50, 60, '');
+    expect(viewOf(root, 'b').style.left).toBe('350px');
+    viewOf(root, 'a').dispatchEvent(new Event('lostpointercapture'));
+    expect(viewOf(root, 'a').style.left).toBe('10px');
+    expect(viewOf(root, 'b').style.left).toBe('300px');
+    expect(put).not.toHaveBeenCalled();
+    expect(pos(board, 'b')).toEqual([300, 40]);
+  });
+
+  it('a selected note removed by another tab mid-drag is skipped on drop', () => {
+    const { board, root, store } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    drag(root, 'a', 50, 60, '');
+    store.remove('b');
+    board.applyRemote({ kind: 'remove', id: 'b' });
+    expect(() => ptr(bar(root, 'a'), 'pointerup', 150, 160)).not.toThrow();
+    expect(pos(board, 'a')).toEqual([60, 80]);
+    expect(store.get('a')!.x).toBe(60);
+    expect(store.get('b')).toBeUndefined();
+    expect(board.stickies().map((s) => s.id)).toEqual(['a', 'c']);
+  });
+
+  it('dragging an unselected note clears the selection and moves only it', () => {
+    const { board, root } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    drag(root, 'c', 50, 60);
+    expect(board.selectedIds()).toEqual([]);
+    expect(pos(board, 'c')).toEqual([650, 150]);
+    expect(pos(board, 'a')).toEqual([10, 20]);
+    expect(pos(board, 'b')).toEqual([300, 40]);
   });
 });

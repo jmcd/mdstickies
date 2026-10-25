@@ -1,4 +1,4 @@
-import { normalizeRect, touches } from '../arrange';
+import { clampDelta, normalizeRect, touches } from '../arrange';
 import { createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
 import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard } from '../format';
 import { parseStorageEvent, resolveRemote, StorageFailure, type RemoteChange, type StickyStore } from '../store';
@@ -317,6 +317,17 @@ export class Board {
     }
   }
 
+  private groupMove(dx: number, dy: number, phase: 'move' | 'end' | 'cancel'): void {
+    const sel = this.selectedStickies();
+    const d = phase === 'cancel' ? { dx: 0, dy: 0 } : clampDelta(sel, dx, dy);
+    if (phase !== 'end') {
+      for (const s of sel) this.views.get(s.id)?.preview(d.dx, d.dy);
+      return;
+    }
+    for (const s of sel) this.change(s.id, { x: s.x + d.dx, y: s.y + d.dy }, false);
+    this.resize();
+  }
+
   private async requestDelete(id: string): Promise<void> {
     const s = this.notes.get(id);
     if (!s) return;
@@ -340,7 +351,11 @@ export class Board {
     const existing = this.views.get(s.id);
     if (existing) return existing.update(s);
     const view = new StickyView(s, {
-      onChange: (id, changes, { debounce }) => this.change(id, changes, debounce),
+      onChange: (id, changes, { debounce }) => {
+        if ('x' in changes && this.selected.size > 0 && !this.selected.has(id)) this.setSelection([]); // dragging an unselected note drops the selection
+        this.change(id, changes, debounce);
+      },
+      onGroupMove: (_id, dx, dy, phase) => this.groupMove(dx, dy, phase),
       onActivate: (id) => this.activate(id),
       onEditStart: (id) => { this.editingId = id; this.setSelection([]); },
       onToggleSelect: (id) => this.toggleSelect(id),

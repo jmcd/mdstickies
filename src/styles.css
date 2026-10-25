@@ -175,3 +175,95 @@
   background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.35) 50%);
   border-radius: 0 0 4px 0;
 }
+
+.sticky:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sticky-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.sticky-body pre code.hljs {
+  padding: 6px;
+  border-radius: 3px;
+}
+
+/* App shell */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: #f3f1ec;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar button {
+  padding: 6px 14px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toolbar button:hover { background: #f6f8fa; }
+
+.toolbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  color: #5c3b00;
+  background: #fff4d6;
+  border-bottom: 1px solid #e8c66b;
+}
+
+.banner-dismiss {
+  padding: 0 6px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* Flex stretch fills the viewport; Board sets min-width/min-height inline to grow past it. */
+.board {
+  position: relative;
+  z-index: 0; /* contain note z-indexes below the toolbar and dialogs */
+  flex: 1;
+}

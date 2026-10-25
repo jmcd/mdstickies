@@ -4,6 +4,7 @@ export interface DialogButton {
   danger?: boolean;
 }
 
+let dialogCount = 0;
 let active: { dismiss: () => void; previous: HTMLElement | null } | null = null;
 
 export function showDialog(opts: {
@@ -26,6 +27,9 @@ export function showDialog(opts: {
 
     const message = document.createElement('p');
     message.className = 'dialog-message';
+    message.id = `dialog-message-${++dialogCount}`;
+    dialog.setAttribute('aria-labelledby', message.id);
+    dialog.setAttribute('aria-describedby', message.id);
     message.textContent = opts.message;
 
     const actions = document.createElement('div');

@@ -80,4 +80,19 @@ describe('showDialog', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(opener);
   });
+
+  it('names the dialog from its message, with a unique id per dialog', async () => {
+    const p1 = showDialog({ message: 'One', buttons, cancelId: 'cancel' });
+    const d1 = document.querySelector('[role=dialog]')!;
+    const id1 = d1.getAttribute('aria-labelledby')!;
+    expect(d1.getAttribute('aria-describedby')).toBe(id1);
+    expect(document.getElementById(id1)!.textContent).toBe('One');
+    btn('Cancel').click();
+    await p1;
+    const p2 = showDialog({ message: 'Two', buttons, cancelId: 'cancel' });
+    const id2 = document.querySelector('[role=dialog]')!.getAttribute('aria-labelledby')!;
+    expect(id2).not.toBe(id1);
+    btn('Cancel').click();
+    await p2;
+  });
 });

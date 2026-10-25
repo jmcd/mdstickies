@@ -33,6 +33,7 @@ export class Board {
   private readonly selectionBar = document.createElement('div');
   private readonly selectionCount = document.createElement('span');
   private readonly colourDots = document.createElement('div');
+  private colourWrap: HTMLElement | null = null;
   private readonly colourButton = document.createElement('button');
   private box: { x: number; y: number; base: Set<string>; el: HTMLElement | null } | null = null;
   private readonly boardEl = document.createElement('div');
@@ -79,12 +80,6 @@ export class Board {
     for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
     this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
     this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
-    // Escape closes open colour dots first; preventDefault makes onKey leave the selection alone.
-    this.selectionBar.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || this.colourDots.hidden) return;
-      e.preventDefault();
-      this.setColourOpen(false);
-    });
     toolbar.append(this.selectionBar);
 
     this.banner.className = 'banner';
@@ -249,7 +244,7 @@ export class Board {
     palette.setAttribute('aria-label', 'Colour selected');
     palette.setAttribute('aria-expanded', 'false');
     palette.innerHTML = PALETTE_ICON;
-    palette.addEventListener('click', () => this.setColourOpen(palette.getAttribute('aria-expanded') !== 'true'));
+    palette.addEventListener('click', () => this.setColourOpen(this.colourDots.hidden === true));
     const dots = this.colourDots;
     dots.className = 'selection-colors';
     dots.hidden = true;
@@ -269,14 +264,12 @@ export class Board {
     return wrap;
   }
 
-  private colourWrap: HTMLElement | null = null;
-
   private readonly onColourOutside = (e: Event): void => {
     if (!this.colourWrap?.contains(e.target as Node)) this.setColourOpen(false);
   };
 
   private setColourOpen(open: boolean): void {
-    if (this.colourDots.hidden === !open) return;
+    if (!this.colourDots.hidden === open) return;
     this.colourDots.hidden = !open;
     this.colourButton.setAttribute('aria-expanded', String(open));
     if (open) document.addEventListener('pointerdown', this.onColourOutside, true);
@@ -349,6 +342,11 @@ export class Board {
     if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.key === 'Escape' && !this.colourDots.hidden) { // close open colour dots first, wherever focus is
+      e.preventDefault();
+      this.setColourOpen(false);
+      return;
+    }
     if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
       this.setSelection(this.notes.keys());

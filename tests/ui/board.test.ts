@@ -817,6 +817,32 @@ describe('selection actions', () => {
     expect(palette.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('Escape on the body (focus not in the bar) closes open dots and keeps the selection', () => {
+    const { root, board } = four();
+    pick(root, 'a');
+    const dots = selectionBar(root).querySelector<HTMLElement>('.selection-colors')!;
+    selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Colour selected"]')!.click();
+    key(document.body, 'Escape');
+    expect(dots.hidden).toBe(true);
+    expect(board.selectedIds()).toEqual(['a']);
+  });
+
+  it('Escape with the dots closed still clears the selection', () => {
+    const { root, board } = four();
+    pick(root, 'a');
+    key(document.body, 'Escape');
+    expect(board.selectedIds()).toEqual([]);
+  });
+
+  it('Deselect closes open dots', () => {
+    const { root } = four();
+    pick(root, 'a');
+    const dots = selectionBar(root).querySelector<HTMLElement>('.selection-colors')!;
+    selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Colour selected"]')!.click();
+    act(root, 'Deselect');
+    expect(dots.hidden).toBe(true);
+  });
+
   it('Export selected downloads only the selected notes', () => {
     const { root, store, deps } = four();
     pick(root, 'a', 'c');

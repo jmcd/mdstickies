@@ -291,4 +291,40 @@ describe('StickyView', () => {
     area(view).dispatchEvent(e2);
     expect(e2.defaultPrevented).toBe(false);
   });
+
+  it('a right-button press activates but starts no gesture', () => {
+    const { view, cb } = make();
+    const bar = view.el.querySelector('.sticky-bar') as HTMLElement;
+    ptr(bar, 'pointerdown', 10, 10, { button: 2, buttons: 2 });
+    expect(cb.onActivate).toHaveBeenCalledWith('s1');
+    ptr(bar, 'pointermove', 60, 60);
+    expect(view.el.style.left).toBe('100px');
+    expect(view.el.classList.contains('dragging')).toBe(false);
+  });
+
+  it('a move with no buttons held cancels the gesture and snaps back', () => {
+    const { view, cb } = make();
+    const bar = view.el.querySelector('.sticky-bar') as HTMLElement;
+    ptr(bar, 'pointerdown', 10, 10);
+    ptr(bar, 'pointermove', 40, 30);
+    expect(view.el.style.left).toBe('130px');
+    ptr(bar, 'pointermove', 80, 80, { buttons: 0 });
+    expect(view.el.style.left).toBe('100px');
+    expect(view.el.classList.contains('dragging')).toBe(false);
+    ptr(bar, 'pointermove', 90, 90);
+    expect(view.el.style.left).toBe('100px');
+    expect(cb.onChange).not.toHaveBeenCalled();
+  });
+
+  it('lostpointercapture cancels an active gesture', () => {
+    const { view, cb } = make();
+    const bar = view.el.querySelector('.sticky-bar') as HTMLElement;
+    ptr(bar, 'pointerdown', 10, 10);
+    ptr(bar, 'pointermove', 40, 30);
+    bar.dispatchEvent(new Event('lostpointercapture', { bubbles: true }));
+    expect(view.el.style.left).toBe('100px');
+    expect(view.el.classList.contains('dragging')).toBe(false);
+    ptr(bar, 'pointerup', 40, 30);
+    expect(cb.onChange).not.toHaveBeenCalled();
+  });
 });

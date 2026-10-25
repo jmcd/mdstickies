@@ -67,6 +67,8 @@ export class StickyView {
     el.addEventListener('pointermove', (e) => this.onPointerMove(e as PointerEvent));
     el.addEventListener('pointerup', (e) => this.onPointerUp(e as PointerEvent));
     el.addEventListener('pointercancel', () => this.cancelGesture());
+    // Capture lost without a pointerup (e.g. a context menu swallowed it): abandon the move.
+    el.addEventListener('lostpointercapture', () => this.cancelGesture());
     // A native drag-and-drop (selected text, <img>) would fire pointercancel and snap the note back.
     el.addEventListener('dragstart', (e) => {
       if (!this.editing) e.preventDefault();
@@ -175,6 +177,7 @@ export class StickyView {
   private onPointerDown(e: PointerEvent): void {
     this.cb.onActivate(this.sticky.id);
     this.suppressClick = false;
+    if (e.button !== 0) return;
     const t = e.target as HTMLElement;
     let kind: Gesture['kind'] | null = null;
     let active = true;
@@ -204,6 +207,10 @@ export class StickyView {
   private onPointerMove(e: PointerEvent): void {
     const g = this.gesture;
     if (!g) return;
+    if (e.buttons === 0) {
+      this.cancelGesture();
+      return;
+    }
     const dx = e.clientX - g.startX;
     const dy = e.clientY - g.startY;
     if (!g.active) {

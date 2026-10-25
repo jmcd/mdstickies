@@ -255,6 +255,7 @@ body {
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap; /* wrap rather than scroll: overflow would clip the colour dots; a taller toolbar beats hidden controls */
   gap: 8px;
   padding: 8px 12px;
   background: var(--surface);
@@ -263,6 +264,7 @@ body {
 
 .toolbar button,
 .selection-bar button {
+  white-space: nowrap;
   padding: 6px 14px;
   font: inherit;
   color: var(--text);
@@ -320,6 +322,7 @@ body {
 
 .selection-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-left: 16px;

@@ -4,7 +4,7 @@ import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard
 import { parseStorageEvent, resolveRemote, StorageFailure, type RemoteChange, type StickyStore } from '../store';
 import type { showDialog } from './dialog';
 import type { downloadFile, pickFile } from './files';
-import { isPrimaryShortcut, isSelectModifier } from './keys';
+import { IS_MAC, isPrimaryShortcut, isSelectModifier } from './keys';
 import { PALETTE_ICON, StickyView } from './stickyView';
 
 export interface BoardDeps {
@@ -35,6 +35,8 @@ export class Board {
   private readonly colourDots = document.createElement('div');
   private colourWrap: HTMLElement | null = null;
   private readonly colourButton = document.createElement('button');
+  // Ids captured on the first move of a group drag: the selection can change or shrink mid-drag.
+  private groupDrag: { dragId: string; ids: string[]; cancelled: boolean } | null = null;
   private box: { x: number; y: number; base: Set<string>; el: HTMLElement | null } | null = null;
   private readonly boardEl = document.createElement('div');
   private readonly banner = document.createElement('div');
@@ -98,6 +100,8 @@ export class Board {
     this.boardEl.className = 'board';
     this.root.replaceChildren(toolbar, this.boardEl);
 
+    // A press on empty board must not start a text selection; blurEdit() ends edits explicitly.
+    this.boardEl.addEventListener('mousedown', (e) => { if (e.target === this.boardEl) e.preventDefault(); });
     this.boardEl.addEventListener('pointerdown', (e) => this.boxStart(e));
     this.boardEl.addEventListener('pointermove', (e) => this.boxMove(e));
     this.boardEl.addEventListener('pointerup', () => this.boxEnd(true));
@@ -323,6 +327,7 @@ export class Board {
       box.el.className = 'marquee';
       this.boardEl.append(box.el);
       this.boardEl.classList.add('selecting');
+      getSelection()?.removeAllRanges();
     }
     const r = normalizeRect(box.x, box.y, x, y);
     Object.assign(box.el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.width}px`, height: `${r.height}px` });
@@ -343,6 +348,11 @@ export class Board {
     if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (this.groupDrag) { // a drag in progress owns the selection: Esc cancels it, select-all/delete wait
+      if (e.key === 'Escape') this.cancelGroupDrag();
+      if (e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace' || (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a')) e.preventDefault();
+      return;
+    }
     if (e.key === 'Escape' && !this.colourDots.hidden) { // close open colour dots first, wherever focus is
       e.preventDefault();
       this.setColourOpen(false);
@@ -351,7 +361,7 @@ export class Board {
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected.size > 0) {
       e.preventDefault(); // Backspace can navigate back in some browsers
       void this.deleteSelected();
-    } else if (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a') {
+    } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && !(IS_MAC && e.ctrlKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
       this.setSelection(this.notes.keys());
     } else if (e.key === 'Escape') {
@@ -396,8 +406,15 @@ export class Board {
     }
   }
 
-  private groupMove(dx: number, dy: number, phase: 'move' | 'end' | 'cancel'): void {
-    const sel = this.selectedStickies();
+  private groupMove(id: string, dx: number, dy: number, phase: 'move' | 'end' | 'cancel'): void {
+    if (phase === 'move' && (!this.groupDrag || this.groupDrag.dragId !== id)) {
+      this.groupDrag = { dragId: id, ids: [...this.selected], cancelled: false };
+    }
+    const drag = this.groupDrag;
+    if (!drag) return;
+    if (phase !== 'move') this.groupDrag = null;
+    if (drag.cancelled) return; // Esc already reset the previews
+    const sel = drag.ids.map((i) => this.notes.get(i)).filter((s): s is Sticky => !!s);
     const d = phase === 'cancel' ? { dx: 0, dy: 0 } : clampDelta(sel, dx, dy);
     if (phase !== 'end') {
       for (const s of sel) this.views.get(s.id)?.preview(d.dx, d.dy);
@@ -405,6 +422,13 @@ export class Board {
     }
     for (const s of sel) this.change(s.id, { x: s.x + d.dx, y: s.y + d.dy }, false);
     this.resize();
+  }
+
+  private cancelGroupDrag(): void {
+    const drag = this.groupDrag;
+    if (!drag || drag.cancelled) return;
+    drag.cancelled = true; // the pointerup that follows is then ignored
+    for (const i of drag.ids) this.views.get(i)?.preview(0, 0);
   }
 
   private async requestDelete(id: string): Promise<void> {
@@ -455,11 +479,11 @@ export class Board {
         if ('x' in changes && this.selected.size > 0 && !this.selected.has(id)) this.setSelection([]); // dragging an unselected note drops the selection
         this.change(id, changes, debounce);
       },
-      onGroupMove: (_id, dx, dy, phase) => this.groupMove(dx, dy, phase),
+      onGroupMove: (id, dx, dy, phase) => this.groupMove(id, dx, dy, phase),
       onActivate: (id) => this.activate(id),
       onEditStart: (id) => { this.editingId = id; this.setSelection([]); },
       onToggleSelect: (id) => this.toggleSelect(id),
-      onPlainClick: () => this.setSelection([]),
+      onPlainClick: (id) => { this.activate(id); this.setSelection([]); },
       onEditEnd: (id) => this.endEdit(id),
       onDeleteRequest: (id) => void this.requestDelete(id),
     });
@@ -470,6 +494,10 @@ export class Board {
   private removeLocal(id: string): void {
     this.cancelPending(id);
     if (this.editingId === id) this.editingId = null;
+    if (this.groupDrag?.dragId === id) { // its pointerup will never arrive: drop the drag and reset the others
+      this.cancelGroupDrag();
+      this.groupDrag = null;
+    }
     this.views.get(id)?.el.remove();
     this.views.delete(id);
     this.notes.delete(id);

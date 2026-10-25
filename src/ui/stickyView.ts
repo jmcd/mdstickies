@@ -29,6 +29,7 @@ interface Gesture {
   startY: number;
   pointerId: number | undefined;
   active: boolean; // false while a body press is still below the drag threshold
+  moved: boolean; // the pointer actually moved while active: the click that follows is not a click
   group: boolean; // moving a selected note: report deltas instead of moving ourselves
 }
 
@@ -104,11 +105,15 @@ export class StickyView {
     el.addEventListener('focusout', (e) => this.onFocusOut(e));
     el.addEventListener('click', (e) => this.onClick(e));
     // Keep focus in the textarea when pressing a dot or x (Safari/Firefox-mac don't focus buttons; Chrome would).
+    // A modifier press must not extend a text selection or move focus (Chrome does both on mousedown, not pointerdown).
     el.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && isSelectModifier(e) && !this.ownTextarea(e.target as HTMLElement)) e.preventDefault();
       if (this.editing && (e.target as HTMLElement).closest('.sticky-dot, .sticky-palette, .sticky-delete')) e.preventDefault();
     });
     el.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.setSwatchesOpen(false);
+      if (e.key !== 'Escape') return;
+      if (this.paletteEl.getAttribute('aria-expanded') === 'true') e.preventDefault(); // closing the dots is all this Esc does
+      this.setSwatchesOpen(false);
     });
 
     this.apply();
@@ -262,7 +267,7 @@ export class StickyView {
     const group = kind === 'move' && this.isSelected && e.button === 0;
     if (!group) this.cb.onActivate(this.sticky.id);
     if (e.button !== 0 || !kind) return;
-    this.gesture = { kind, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, active, group };
+    this.gesture = { kind, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, active, moved: false, group };
     if (active) this.activate();
   }
 
@@ -295,6 +300,7 @@ export class StickyView {
       g.active = true;
       this.activate();
     }
+    if (dx !== 0 || dy !== 0) g.moved = true;
     if (g.group) {
       this.cb.onGroupMove?.(this.sticky.id, dx, dy, 'move');
       return;
@@ -326,7 +332,7 @@ export class StickyView {
     this.gesture = null;
     this.el.classList.remove('dragging');
     if (!g.active) return;
-    if (e.clientX !== g.startX || e.clientY !== g.startY) this.suppressClick = true;
+    if (g.moved) this.suppressClick = true;
     if (g.group) {
       this.cb.onGroupMove?.(this.sticky.id, e.clientX - g.startX, e.clientY - g.startY, 'end');
       return;

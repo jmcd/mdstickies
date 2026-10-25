@@ -568,6 +568,44 @@ describe('selection', () => {
     expect(cb.onActivate).not.toHaveBeenCalled();
   });
 
+  it('a modifier mousedown is default-prevented outside the editing textarea, never inside; plain mousedown is not', () => {
+    const { view } = makeSel();
+    const down = (t: Element, init: MouseEventInit = {}) => {
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true, ...init });
+      t.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(down(body(view))).toBe(false);
+    expect(down(body(view), { shiftKey: true })).toBe(true);
+    expect(down(bar(view), { ctrlKey: true })).toBe(true);
+    view.edit();
+    expect(down(area(view), { shiftKey: true })).toBe(false);
+  });
+
+  it('a drag that returns to its start pixel is still a drag: no plain click', () => {
+    const { view, cb } = makeSel();
+    ptr(body(view), 'pointerdown', 0, 0);
+    ptr(body(view), 'pointermove', 30, 40);
+    ptr(body(view), 'pointermove', 0, 0);
+    ptr(body(view), 'pointerup', 0, 0);
+    click(body(view));
+    expect(cb.onPlainClick).not.toHaveBeenCalled();
+    expect(area(view)).toBeNull();
+  });
+
+  it('Escape that closes the note\'s colour dots is default-prevented; otherwise not', () => {
+    const { view } = makeSel();
+    const esc = () => {
+      const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      view.el.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(esc()).toBe(false);
+    click(view.el.querySelector('.sticky-palette')!);
+    expect(esc()).toBe(true);
+    expect(esc()).toBe(false);
+  });
+
   it('the selected outline is drawn from .sticky.selected', () => {
     const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
     expect(css).toMatch(/\.sticky\.selected\s*\{[^}]*outline/);

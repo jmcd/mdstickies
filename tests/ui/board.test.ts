@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Board, type BoardDeps } from '../../src/ui/board';
 import { StickyStore, KEY_PREFIX, parseStorageEvent } from '../../src/store';
@@ -644,6 +646,124 @@ describe('selection', () => {
     ptr(el, 'pointermove', 600, 400);
     expect(board.selectedIds()).toEqual(['b']);
     ptr(el, 'pointerup', 600, 400);
+  });
+});
+
+describe('review fixes', () => {
+  const trio = () => setup({ saved: [sticky({ id: 'a' }), sticky({ id: 'b', x: 300, y: 40, z: 2 }), sticky({ id: 'c', x: 600, y: 90, z: 3 })] });
+  const dragging = (root: HTMLElement, id: string, dx: number) => {
+    ptr(bar(root, id), 'pointerdown', 100, 100);
+    ptr(bar(root, id), 'pointermove', 100 + dx, 100);
+  };
+  const up = (root: HTMLElement, id: string, dx: number) => ptr(bar(root, id), 'pointerup', 100 + dx, 100);
+  const left = (root: HTMLElement) => ['a', 'b', 'c'].map((id) => viewOf(root, id)?.style.left);
+
+  it('Escape mid group drag cancels it: previews reset, release saves nothing, selection kept', () => {
+    const { board, root, store } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    const put = vi.spyOn(store, 'put');
+    dragging(root, 'b', 50);
+    expect(viewOf(root, 'a').style.left).toBe('60px');
+    key(document.body, 'Escape');
+    expect(left(root)).toEqual(['10px', '300px', '600px']);
+    ptr(bar(root, 'b'), 'pointermove', 200, 100);
+    expect(viewOf(root, 'a').style.left).toBe('10px');
+    up(root, 'b', 150);
+    expect(left(root)).toEqual(['10px', '300px', '600px']);
+    expect(put).not.toHaveBeenCalled();
+    expect(sorted(board)).toEqual(['a', 'b']);
+    // a fresh drag afterwards works
+    dragging(root, 'b', 20);
+    up(root, 'b', 20);
+    expect(store.get('a')!.x).toBe(30);
+  });
+
+  it('Ctrl+A and Delete mid group drag are ignored', async () => {
+    const { board, root, store, deps } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    dragging(root, 'b', 50);
+    const ctrlA = key(document.body, 'a', { ctrlKey: true });
+    key(document.body, 'Delete');
+    expect(ctrlA.defaultPrevented).toBe(true);
+    expect(sorted(board)).toEqual(['a', 'b']);
+    expect(deps.dialog).not.toHaveBeenCalled();
+    const put = vi.spyOn(store, 'put');
+    up(root, 'b', 50);
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(store.get('c')!.x).toBe(600);
+    expect(board.stickies().find((s) => s.id === 'a')!.x).toBe(60);
+  });
+
+  it('a note removed remotely mid-drag does not leave the others previewed (end, Escape, dragged note removed)', () => {
+    for (const how of ['end', 'esc', 'dragger'] as const) {
+      const { board, root, store } = trio();
+      shiftClick(root, 'a');
+      shiftClick(root, 'b');
+      shiftClick(root, 'c');
+      dragging(root, 'b', 50);
+      const gone = how === 'dragger' ? 'b' : 'c';
+      store.remove(gone);
+      board.applyRemote({ kind: 'remove', id: gone });
+      if (how === 'esc') key(document.body, 'Escape');
+      if (how === 'end') up(root, 'b', 50);
+      if (how === 'end') expect(board.stickies().find((s) => s.id === 'a')!.x).toBe(60);
+      else expect(viewOf(root, 'a').style.left).toBe('10px');
+      if (how !== 'dragger') expect(viewOf(root, 'b').style.left).toBe(how === 'end' ? '350px' : '300px');
+    }
+  });
+
+  it('a plain click on a selected note brings it to front and clears the selection', () => {
+    const { board, root } = trio();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    ptr(bar(root, 'a'), 'pointerdown', 5, 5);
+    ptr(bar(root, 'a'), 'pointerup', 5, 5);
+    bar(root, 'a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(board.selectedIds()).toEqual([]);
+    expect(board.stickies().find((s) => s.id === 'a')!.z).toBe(4);
+  });
+
+  it('Ctrl+Shift+A and Ctrl+Alt+A do not select all', () => {
+    const { board } = trio();
+    key(document.body, 'a', { ctrlKey: true, shiftKey: true });
+    key(document.body, 'a', { ctrlKey: true, altKey: true });
+    expect(board.selectedIds()).toEqual([]);
+    key(document.body, 'a', { ctrlKey: true });
+    expect(board.selectedIds().length).toBe(3);
+  });
+
+  it('mousedown on empty board is default-prevented (no text selection), still ends an edit and saves', () => {
+    vi.useFakeTimers();
+    try {
+      const { root, store } = setup({ saved: [sticky({ id: 'a' })] });
+      viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+      type(root, 'a', 'changed');
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      boardEl(root).dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+      ptr(boardEl(root), 'pointerdown', 900, 900);
+      expect(viewOf(root, 'a').querySelector('textarea')).toBeNull();
+      expect(store.get('a')!.text).toBe('changed');
+      const onNote = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      bar(root, 'a').dispatchEvent(onNote);
+      expect(onNote.defaultPrevented).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('the drag-box clears any text selection when the marquee appears', () => {
+    const { root } = trio();
+    const spy = vi.spyOn(window.getSelection()!, 'removeAllRanges');
+    ptr(boardEl(root), 'pointerdown', 900, 900);
+    ptr(boardEl(root), 'pointermove', 905, 905);
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it('toolbar buttons do not wrap their labels and the toolbar wraps', () => {
+    const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
+    expect(css).toMatch(/\.toolbar\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(css).toMatch(/\.selection-bar button\s*\{[^}]*white-space:\s*nowrap/);
   });
 });
 

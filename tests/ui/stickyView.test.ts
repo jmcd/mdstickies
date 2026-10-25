@@ -21,8 +21,8 @@ afterEach(() => { document.body.innerHTML = ''; });
 const body = (v: StickyView) => v.el.querySelector('.sticky-body') as HTMLElement;
 const area = (v: StickyView) => v.el.querySelector('textarea') as HTMLTextAreaElement;
 
-function ptr(target: Element, type: string, x: number, y: number) {
-  const init = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+function ptr(target: Element, type: string, x: number, y: number, extra: { button?: number; buttons?: number } = {}) {
+  const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1, ...extra };
   target.dispatchEvent(
     typeof PointerEvent !== 'undefined' ? new PointerEvent(type, init) : new MouseEvent(type, init),
   );
@@ -257,5 +257,38 @@ describe('StickyView', () => {
     expect(down(dot)).toBe(true);
     expect(down(del)).toBe(true);
     expect(down(area(view))).toBe(false);
+  });
+
+  it('toggles the dragging class while a gesture is active, and clears the selection', () => {
+    const { view } = make();
+    const removeAllRanges = vi.fn();
+    vi.spyOn(window, 'getSelection').mockReturnValue({ removeAllRanges } as unknown as Selection);
+    const b = body(view);
+    ptr(b, 'pointerdown', 0, 0);
+    expect(view.el.classList.contains('dragging')).toBe(false); // below threshold
+    ptr(b, 'pointermove', 20, 0);
+    expect(view.el.classList.contains('dragging')).toBe(true);
+    expect(removeAllRanges).toHaveBeenCalled();
+    ptr(b, 'pointerup', 20, 0);
+    expect(view.el.classList.contains('dragging')).toBe(false);
+
+    const bar = view.el.querySelector('.sticky-bar') as HTMLElement;
+    ptr(bar, 'pointerdown', 0, 0);
+    expect(view.el.classList.contains('dragging')).toBe(true);
+    ptr(bar, 'pointercancel', 0, 0);
+    expect(view.el.classList.contains('dragging')).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('dragstart is prevented unless editing', () => {
+    const { view } = make();
+    const ev = () => new Event('dragstart', { bubbles: true, cancelable: true });
+    const e1 = ev();
+    body(view).dispatchEvent(e1);
+    expect(e1.defaultPrevented).toBe(true);
+    view.edit();
+    const e2 = ev();
+    area(view).dispatchEvent(e2);
+    expect(e2.defaultPrevented).toBe(false);
   });
 });

@@ -147,6 +147,9 @@
   cursor: text;
 }
 
+.sticky.dragging,
+.sticky.dragging * { user-select: none; }
+
 .sticky-body > :first-child { margin-top: 0; }
 .sticky-body > :last-child { margin-bottom: 0; }
 .sticky-body pre { overflow-x: auto; }

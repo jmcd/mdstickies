@@ -67,6 +67,10 @@ export class StickyView {
     el.addEventListener('pointermove', (e) => this.onPointerMove(e as PointerEvent));
     el.addEventListener('pointerup', (e) => this.onPointerUp(e as PointerEvent));
     el.addEventListener('pointercancel', () => this.cancelGesture());
+    // A native drag-and-drop (selected text, <img>) would fire pointercancel and snap the note back.
+    el.addEventListener('dragstart', (e) => {
+      if (!this.editing) e.preventDefault();
+    });
     el.addEventListener('focusin', () => cb.onActivate(this.sticky.id));
     el.addEventListener('focusout', (e) => this.onFocusOut(e));
     el.addEventListener('click', (e) => this.onClick(e));
@@ -183,7 +187,13 @@ export class StickyView {
     }
     if (!kind) return;
     this.gesture = { kind, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, active };
-    if (active) this.capture();
+    if (active) this.activate();
+  }
+
+  private activate(): void {
+    this.capture();
+    this.el.classList.add('dragging');
+    getSelection()?.removeAllRanges();
   }
 
   private capture(): void {
@@ -199,7 +209,7 @@ export class StickyView {
     if (!g.active) {
       if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
       g.active = true;
-      this.capture();
+      this.activate();
     }
     const geo = this.geometry(g, dx, dy);
     const st = this.el.style;
@@ -226,6 +236,7 @@ export class StickyView {
     const g = this.gesture;
     if (!g) return;
     this.gesture = null;
+    this.el.classList.remove('dragging');
     if (!g.active) return;
     this.suppressClick = true;
     const geo = this.geometry(g, e.clientX - g.startX, e.clientY - g.startY);
@@ -236,6 +247,7 @@ export class StickyView {
   private cancelGesture(): void {
     if (!this.gesture) return;
     this.gesture = null;
+    this.el.classList.remove('dragging');
     this.apply(); // snap back to the stored geometry
   }
 }

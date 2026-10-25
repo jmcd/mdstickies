@@ -18,6 +18,8 @@ const BANNER_TEXT = "Couldn't save — your browser storage is full or unavailab
 
 type Changes = Partial<Omit<Sticky, 'id' | 'createdAt'>>;
 
+const isNewer = (a: Sticky, b: Sticky): boolean => Date.parse(a.updatedAt) > Date.parse(b.updatedAt);
+
 export class Board {
   private readonly notes = new Map<string, Sticky>();
   private readonly views = new Map<string, StickyView>();
@@ -190,7 +192,7 @@ export class Board {
     if (!local) return;
     // Compare before flushing: writing our older pending text first would overwrite the newer stored note.
     const stored = this.store.get(id);
-    if (stored && Date.parse(stored.updatedAt) > Date.parse(local.updatedAt)) {
+    if (stored && isNewer(stored, local)) {
       this.cancelPending(id);
       this.upsertView(stored);
       this.resize();
@@ -272,11 +274,17 @@ export class Board {
     this.pending.delete(id);
   }
 
+  // Newest updatedAt wins: never write a pending copy over a newer stored one (a remote save we ignored mid-edit).
   private flushOne(id: string): void {
     const pending = this.pending.has(id);
     this.cancelPending(id);
     const s = this.notes.get(id);
-    if (pending && s) this.save(s);
+    if (!pending || !s) return;
+    const stored = this.store.get(id);
+    if (!stored || !isNewer(stored, s)) return this.save(s);
+    if (this.editingId === id) return; // endEdit adopts it
+    this.upsertView(stored);
+    this.resize();
   }
 
   private saveNow(s: Sticky): void {

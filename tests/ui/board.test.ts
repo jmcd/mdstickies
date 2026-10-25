@@ -321,6 +321,44 @@ describe('Board', () => {
     expect(store.get(s.id)!.text).toBe('theirs');
   });
 
+  describe('a pending text save never overwrites a newer stored copy', () => {
+    // Our keystroke at t0, the other tab's save at t0+100 (ignored while editing), then our pending save fires.
+    function race() {
+      const ctx = setup();
+      const s = ctx.board.newSticky();
+      type(ctx.root, s.id, 'mine');
+      vi.advanceTimersByTime(100);
+      const theirs = { ...ctx.store.get(s.id)!, text: 'theirs', color: 'pink' as const, updatedAt: new Date().toISOString() };
+      ctx.store.put(theirs);
+      ctx.board.applyRemote({ kind: 'upsert', sticky: theirs });
+      return { ...ctx, s, theirs };
+    }
+
+    it('when the debounce timer fires', () => {
+      const { board, store, root, s, theirs } = race();
+      vi.advanceTimersByTime(300);
+      expect(store.get(s.id)).toEqual(theirs);
+      expect(viewOf(root, s.id).querySelector('textarea')!.value).toBe('mine'); // still editing: left alone
+      endEdit(root, s.id);
+      expect(board.stickies()[0]).toEqual(theirs);
+      expect(store.get(s.id)).toEqual(theirs);
+    });
+
+    it('when pagehide flushes', () => {
+      const { store, s, theirs } = race();
+      window.dispatchEvent(new Event('pagehide'));
+      expect(store.get(s.id)).toEqual(theirs);
+    });
+
+    it('but typing after the remote save wins', () => {
+      const { store, root, s } = race();
+      vi.advanceTimersByTime(10);
+      type(root, s.id, 'mine, later');
+      vi.advanceTimersByTime(300);
+      expect(store.get(s.id)!.text).toBe('mine, later');
+    });
+  });
+
   it('applyRemote remove for the note being edited re-saves it', () => {
     const { board, store, root } = setup();
     const s = board.newSticky();

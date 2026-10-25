@@ -58,6 +58,77 @@ describe('StickyView', () => {
     expect(css).toMatch(/\.sticky\.editing\s*\{[^}]*outline/);
   });
 
+  describe('colour palette', () => {
+    const palette = (v: StickyView) => v.el.querySelector('.sticky-palette') as HTMLButtonElement;
+    const swatches = (v: StickyView) => v.el.querySelector('.sticky-colors') as HTMLElement;
+
+    it('starts closed behind a labelled palette button', () => {
+      const { view } = make();
+      expect(palette(view).getAttribute('aria-label')).toBe('Change colour');
+      expect(palette(view).getAttribute('aria-expanded')).toBe('false');
+      expect(swatches(view).hidden).toBe(true);
+    });
+
+    // jsdom hides [hidden] regardless of author CSS, so it can't show `.sticky-colors { display: flex }`
+    // overriding it in real browsers; assert the stylesheet forces [hidden] to win instead.
+    it('stylesheet makes the hidden attribute beat display rules', () => {
+      const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
+      expect(css).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
+    });
+
+    it('palette button toggles the swatches open and closed', () => {
+      const { view, cb } = make();
+      palette(view).click();
+      expect(swatches(view).hidden).toBe(false);
+      expect(palette(view).getAttribute('aria-expanded')).toBe('true');
+      palette(view).click();
+      expect(swatches(view).hidden).toBe(true);
+      expect(view.editing).toBe(false);
+      expect(cb.onChange).not.toHaveBeenCalled();
+    });
+
+    it('picking a colour reports it and closes the swatches', () => {
+      const { view, cb } = make();
+      palette(view).click();
+      (view.el.querySelector('.sticky-dot--blue') as HTMLElement).click();
+      expect(cb.onChange).toHaveBeenCalledWith('s1', { color: 'blue' }, { debounce: false });
+      expect(swatches(view).hidden).toBe(true);
+    });
+
+    it('Escape closes the swatches', () => {
+      const { view } = make();
+      palette(view).click();
+      view.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(swatches(view).hidden).toBe(true);
+    });
+
+    it('pressing anywhere outside the note closes the swatches', () => {
+      const { view } = make();
+      palette(view).click();
+      ptr(document.body, 'pointerdown', 0, 0);
+      expect(swatches(view).hidden).toBe(true);
+    });
+
+    it('pressing inside the open swatches does not close them', () => {
+      const { view } = make();
+      palette(view).click();
+      ptr(swatches(view), 'pointerdown', 0, 0);
+      expect(swatches(view).hidden).toBe(false);
+    });
+
+    it('palette press neither drags nor steals focus from the textarea', () => {
+      const { view, cb } = make();
+      ptr(palette(view), 'pointerdown', 10, 10);
+      ptr(palette(view), 'pointermove', 60, 60);
+      ptr(palette(view), 'pointerup', 60, 60);
+      expect(cb.onChange).not.toHaveBeenCalled();
+      view.edit();
+      const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      palette(view).dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+    });
+  });
+
   it('renders markdown when not editing', () => {
     const { view } = make();
     expect(body(view).innerHTML).toContain('<h2');

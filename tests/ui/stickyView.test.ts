@@ -222,4 +222,40 @@ describe('StickyView', () => {
     view.update({ ...sticky, text: '# fresh' });
     expect(body(view).querySelector('h1')).not.toBeNull();
   });
+
+  it('update() that changes only z does not touch the body DOM; changed text still re-renders', () => {
+    const { view, sticky } = make();
+    const h2 = body(view).querySelector('h2');
+    view.update({ ...sticky, z: 9 });
+    expect(body(view).querySelector('h2')).toBe(h2);
+    view.update({ ...sticky, z: 9, text: '# new' });
+    expect(body(view).querySelector('h1')).not.toBeNull();
+  });
+
+  it('onActivate that raises z via update() does not break a checkbox click', () => {
+    const { view, cb, sticky } = make({ text: '- [ ] a\n- [ ] b' });
+    cb.onActivate.mockImplementation(() => view.update({ ...sticky, z: 9 }));
+    const box = body(view).querySelector('input[data-task-index="0"]') as HTMLElement;
+    ptr(box, 'pointerdown', 0, 0);
+    ptr(box, 'pointerup', 0, 0);
+    box.click();
+    expect(cb.onChange).toHaveBeenCalledWith('s1', { text: '- [x] a\n- [ ] b' }, { debounce: false });
+    expect(view.editing).toBe(false);
+  });
+
+  it('mousedown on dot or x is default-prevented only while editing', () => {
+    const { view } = make();
+    const dot = view.el.querySelector('[data-color="pink"]') as HTMLElement;
+    const del = view.el.querySelector('.sticky-delete') as HTMLElement;
+    const down = (t: HTMLElement) => {
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      t.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(down(dot)).toBe(false);
+    view.edit();
+    expect(down(dot)).toBe(true);
+    expect(down(del)).toBe(true);
+    expect(down(area(view))).toBe(false);
+  });
 });

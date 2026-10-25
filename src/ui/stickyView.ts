@@ -30,6 +30,7 @@ export class StickyView {
   private textarea: HTMLTextAreaElement | null = null;
   private gesture: Gesture | null = null;
   private suppressClick = false;
+  private renderedText: string | null = null;
 
   constructor(sticky: Sticky, private readonly cb: StickyViewCallbacks) {
     this.sticky = sticky;
@@ -69,6 +70,10 @@ export class StickyView {
     el.addEventListener('focusin', () => cb.onActivate(this.sticky.id));
     el.addEventListener('focusout', (e) => this.onFocusOut(e));
     el.addEventListener('click', (e) => this.onClick(e));
+    // Keep focus in the textarea when pressing a dot or x (Safari/Firefox-mac don't focus buttons; Chrome would).
+    el.addEventListener('mousedown', (e) => {
+      if (this.editing && (e.target as HTMLElement).closest('.sticky-dot, .sticky-delete')) e.preventDefault();
+    });
 
     this.apply();
     this.renderBody();
@@ -81,7 +86,8 @@ export class StickyView {
   update(sticky: Sticky): void {
     this.sticky = sticky;
     this.apply();
-    if (!this.editing) this.renderBody();
+    // Only re-render when the text changed: replacing the DOM under a pressed checkbox/link would lose its click.
+    if (!this.editing && sticky.text !== this.renderedText) this.renderBody();
   }
 
   edit(): void {
@@ -125,6 +131,7 @@ export class StickyView {
   }
 
   private renderBody(): void {
+    this.renderedText = this.sticky.text;
     this.bodyEl.innerHTML = renderMarkdown(this.sticky.text);
   }
 

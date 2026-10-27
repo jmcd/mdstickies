@@ -5,6 +5,7 @@
   --accent: #2563eb;
   --danger: #c62828;
   --backdrop: rgba(0, 0, 0, 0.4);
+  --board: #f3f1ec;
 }
 
 /* Author display rules (e.g. .sticky-colors { display: flex }) would otherwise override the hidden attribute. */
@@ -241,7 +242,7 @@ body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   color: var(--text);
-  background: #f3f1ec;
+  background: var(--board);
 }
 
 #app {
@@ -327,6 +328,9 @@ body {
   position: relative;
   z-index: 0; /* contain note z-indexes below the toolbar and dialogs */
   flex: 1;
+  /* body's background only reaches the whole page while html has none; dark-mode extensions give html one,
+     leaving body's colour clipped to the first viewport, so the board paints its own */
+  background: var(--board);
 }
 
 .marquee {

@@ -5,7 +5,7 @@ import { isSelectModifier } from './keys';
 export interface StickyViewCallbacks {
   onChange(
     id: string,
-    changes: Partial<Pick<Sticky, 'text' | 'x' | 'y' | 'width' | 'height' | 'color'>>,
+    changes: Partial<Pick<Sticky, 'text' | 'x' | 'y' | 'width' | 'height'>>,
     opts: { debounce: boolean },
   ): void;
   onActivate(id: string): void;
@@ -19,9 +19,6 @@ export interface StickyViewCallbacks {
 }
 
 const DRAG_THRESHOLD = 4;
-
-export const PALETTE_ICON =
-  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H12a3 3 0 0 0 3-3C15 3.6 11.9 1 8 1Zm-4 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm2-3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm2 3a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
 
 interface Gesture {
   kind: 'move' | 'resize';
@@ -69,13 +66,6 @@ export class StickyView {
   private isSelected = false;
   private renderedText: string | null = null;
   private query = '';
-  private readonly toolsEl: HTMLElement;
-  private readonly swatchesEl: HTMLElement;
-  private readonly paletteEl: HTMLButtonElement;
-  // While the swatches are open, a press outside the tools closes them.
-  private readonly onOutsidePress = (e: Event) => {
-    if (!this.toolsEl.contains(e.target as Node)) this.setSwatchesOpen(false);
-  };
 
   constructor(sticky: Sticky, private readonly cb: StickyViewCallbacks) {
     this.sticky = sticky;
@@ -85,31 +75,14 @@ export class StickyView {
 
     const bar = document.createElement('div');
     bar.className = 'sticky-bar';
-    const dots = (this.swatchesEl = document.createElement('div'));
-    dots.className = 'sticky-colors';
-    dots.hidden = true;
-    for (const color of COLORS) {
-      const dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = `sticky-dot sticky-dot--${color}`;
-      dot.dataset.color = color;
-      dot.setAttribute('aria-label', `Colour ${color}`);
-      dots.appendChild(dot);
-    }
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'sticky-delete';
     del.setAttribute('aria-label', 'Delete note');
     del.textContent = '×';
-    const palette = (this.paletteEl = document.createElement('button'));
-    palette.type = 'button';
-    palette.className = 'sticky-palette';
-    palette.setAttribute('aria-label', 'Change colour');
-    palette.setAttribute('aria-expanded', 'false');
-    palette.innerHTML = PALETTE_ICON;
-    const tools = (this.toolsEl = document.createElement('div'));
+    const tools = document.createElement('div');
     tools.className = 'sticky-tools';
-    tools.append(dots, palette, del);
+    tools.append(del);
     bar.append(tools);
 
     this.bodyEl = document.createElement('div');
@@ -132,16 +105,11 @@ export class StickyView {
     el.addEventListener('focusout', (e) => this.onFocusOut(e));
     el.addEventListener('click', (e) => this.onClick(e));
     el.addEventListener('dblclick', (e) => this.onDoubleClick(e));
-    // Keep focus in the textarea when pressing a dot or x (Safari/Firefox-mac don't focus buttons; Chrome would).
+    // Keep focus in the textarea when pressing x (Safari/Firefox-mac don't focus buttons; Chrome would).
     // A modifier press must not extend a text selection or move focus (Chrome does both on mousedown, not pointerdown).
     el.addEventListener('mousedown', (e) => {
       if (e.button === 0 && isSelectModifier(e) && !this.ownTextarea(e.target as HTMLElement)) e.preventDefault();
-      if (this.editing && (e.target as HTMLElement).closest('.sticky-dot, .sticky-palette, .sticky-delete')) e.preventDefault();
-    });
-    el.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
-      if (this.paletteEl.getAttribute('aria-expanded') === 'true') e.preventDefault(); // closing the dots is all this Esc does
-      this.setSwatchesOpen(false);
+      if (this.editing && (e.target as HTMLElement).closest('.sticky-delete')) e.preventDefault();
     });
 
     this.apply();
@@ -205,14 +173,6 @@ export class StickyView {
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }
 
-  private setSwatchesOpen(open: boolean): void {
-    if ((this.paletteEl.getAttribute('aria-expanded') === 'true') === open) return;
-    this.swatchesEl.hidden = !open;
-    this.paletteEl.setAttribute('aria-expanded', String(open));
-    if (open) document.addEventListener('pointerdown', this.onOutsidePress, true);
-    else document.removeEventListener('pointerdown', this.onOutsidePress, true);
-  }
-
   private endEdit(): void {
     if (!this.textarea) return;
     this.textarea = null;
@@ -251,16 +211,6 @@ export class StickyView {
       e.preventDefault();
       return;
     }
-    const dot = t.closest<HTMLElement>('.sticky-dot');
-    if (dot) {
-      this.setSwatchesOpen(false);
-      this.cb.onChange(this.sticky.id, { color: dot.dataset.color as Sticky['color'] }, { debounce: false });
-      return;
-    }
-    if (t.closest('.sticky-palette')) {
-      this.setSwatchesOpen(this.paletteEl.getAttribute('aria-expanded') !== 'true');
-      return;
-    }
     if (t.closest('.sticky-delete')) {
       this.cb.onDeleteRequest(this.sticky.id);
       return;
@@ -297,7 +247,7 @@ export class StickyView {
     let kind: Gesture['kind'] | null = null;
     let active = true;
     if (t.closest('.sticky-resize')) kind = 'resize';
-    else if (t.closest('.sticky-dot, .sticky-palette, .sticky-delete')) kind = null;
+    else if (t.closest('.sticky-delete')) kind = null;
     else if (t.closest('.sticky-bar')) {
       kind = 'move';
       active = !(this.isSelected && e.button === 0); // a selected note waits for the threshold so a click stays a click

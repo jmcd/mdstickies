@@ -58,75 +58,11 @@ describe('StickyView', () => {
     expect(css).toMatch(/\.sticky\.editing\s*\{[^}]*outline/);
   });
 
-  describe('colour palette', () => {
-    const palette = (v: StickyView) => v.el.querySelector('.sticky-palette') as HTMLButtonElement;
-    const swatches = (v: StickyView) => v.el.querySelector('.sticky-colors') as HTMLElement;
-
-    it('starts closed behind a labelled palette button', () => {
-      const { view } = make();
-      expect(palette(view).getAttribute('aria-label')).toBe('Change colour');
-      expect(palette(view).getAttribute('aria-expanded')).toBe('false');
-      expect(swatches(view).hidden).toBe(true);
-    });
-
-    // jsdom hides [hidden] regardless of author CSS, so it can't show `.sticky-colors { display: flex }`
-    // overriding it in real browsers; assert the stylesheet forces [hidden] to win instead.
-    it('stylesheet makes the hidden attribute beat display rules', () => {
-      const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
-      expect(css).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
-    });
-
-    it('palette button toggles the swatches open and closed', () => {
-      const { view, cb } = make();
-      palette(view).click();
-      expect(swatches(view).hidden).toBe(false);
-      expect(palette(view).getAttribute('aria-expanded')).toBe('true');
-      palette(view).click();
-      expect(swatches(view).hidden).toBe(true);
-      expect(view.editing).toBe(false);
-      expect(cb.onChange).not.toHaveBeenCalled();
-    });
-
-    it('picking a colour reports it and closes the swatches', () => {
-      const { view, cb } = make();
-      palette(view).click();
-      (view.el.querySelector('.sticky-dot--blue') as HTMLElement).click();
-      expect(cb.onChange).toHaveBeenCalledWith('s1', { color: 'blue' }, { debounce: false });
-      expect(swatches(view).hidden).toBe(true);
-    });
-
-    it('Escape closes the swatches', () => {
-      const { view } = make();
-      palette(view).click();
-      view.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      expect(swatches(view).hidden).toBe(true);
-    });
-
-    it('pressing anywhere outside the note closes the swatches', () => {
-      const { view } = make();
-      palette(view).click();
-      ptr(document.body, 'pointerdown', 0, 0);
-      expect(swatches(view).hidden).toBe(true);
-    });
-
-    it('pressing inside the open swatches does not close them', () => {
-      const { view } = make();
-      palette(view).click();
-      ptr(swatches(view), 'pointerdown', 0, 0);
-      expect(swatches(view).hidden).toBe(false);
-    });
-
-    it('palette press neither drags nor steals focus from the textarea', () => {
-      const { view, cb } = make();
-      ptr(palette(view), 'pointerdown', 10, 10);
-      ptr(palette(view), 'pointermove', 60, 60);
-      ptr(palette(view), 'pointerup', 60, 60);
-      expect(cb.onChange).not.toHaveBeenCalled();
-      view.edit();
-      const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-      palette(view).dispatchEvent(down);
-      expect(down.defaultPrevented).toBe(true);
-    });
+  // jsdom hides [hidden] regardless of author CSS, so it can't show `.selection-colors { display: flex }`
+  // overriding it in real browsers; assert the stylesheet forces [hidden] to win instead.
+  it('stylesheet makes the hidden attribute beat display rules', () => {
+    const css = readFileSync(resolve(__dirname, '../../src/styles.css'), 'utf8');
+    expect(css).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
   });
 
   it('renders markdown when not editing', () => {
@@ -167,8 +103,8 @@ describe('StickyView', () => {
   it('focusout to a control inside the note keeps editing', () => {
     const { view, cb } = make();
     view.edit();
-    const dot = view.el.querySelector('[data-color="pink"]') as HTMLElement;
-    area(view).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: dot }));
+    const del = view.el.querySelector('.sticky-delete') as HTMLElement;
+    area(view).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: del }));
     expect(view.editing).toBe(true);
     expect(cb.onEditEnd).not.toHaveBeenCalled();
   });
@@ -214,15 +150,6 @@ describe('StickyView', () => {
     expect(view.editing).toBe(false);
   });
 
-  it('colour dot click calls onChange({color}) without editing', () => {
-    const { view, cb } = make();
-    const dot = view.el.querySelector('[data-color="blue"]') as HTMLElement;
-    expect(dot.getAttribute('aria-label')).toBeTruthy();
-    dot.click();
-    expect(cb.onChange).toHaveBeenCalledWith('s1', { color: 'blue' }, { debounce: false });
-    expect(view.editing).toBe(false);
-  });
-
   it('x calls onDeleteRequest', () => {
     const { view, cb } = make();
     (view.el.querySelector('.sticky-delete') as HTMLElement).click();
@@ -250,12 +177,12 @@ describe('StickyView', () => {
     expect(cb.onChange).toHaveBeenCalledWith('s1', { x: 0, y: 0 }, { debounce: false });
   });
 
-  it('colour dots and x do not start a drag', () => {
+  it('x does not start a drag', () => {
     const { view, cb } = make();
-    const dot = view.el.querySelector('[data-color="pink"]') as HTMLElement;
-    ptr(dot, 'pointerdown', 0, 0);
-    ptr(dot, 'pointermove', 50, 50);
-    ptr(dot, 'pointerup', 50, 50);
+    const del = view.el.querySelector('.sticky-delete') as HTMLElement;
+    ptr(del, 'pointerdown', 0, 0);
+    ptr(del, 'pointermove', 50, 50);
+    ptr(del, 'pointerup', 50, 50);
     expect(view.el.style.left).toBe('100px');
     expect(cb.onChange).not.toHaveBeenCalled();
   });
@@ -323,18 +250,16 @@ describe('StickyView', () => {
     expect(view.editing).toBe(false);
   });
 
-  it('mousedown on dot or x is default-prevented only while editing', () => {
+  it('mousedown on x is default-prevented only while editing', () => {
     const { view } = make();
-    const dot = view.el.querySelector('[data-color="pink"]') as HTMLElement;
     const del = view.el.querySelector('.sticky-delete') as HTMLElement;
     const down = (t: HTMLElement) => {
       const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
       t.dispatchEvent(e);
       return e.defaultPrevented;
     };
-    expect(down(dot)).toBe(false);
+    expect(down(del)).toBe(false);
     view.edit();
-    expect(down(dot)).toBe(true);
     expect(down(del)).toBe(true);
     expect(down(area(view))).toBe(false);
   });
@@ -510,7 +435,7 @@ describe('selection', () => {
   it('double-clicking the bar edits; double-clicking a link, checkbox, the tools or the corner does not', () => {
     const { view } = makeSel({ text: '- [ ] a\n\n[l](https://x.test)' });
     const dbl = (t: Element) => t.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-    for (const sel of ['a', 'input[data-task-index="0"]', '.sticky-palette', '.sticky-delete', '.sticky-resize']) dbl(view.el.querySelector(sel)!);
+    for (const sel of ['a', 'input[data-task-index="0"]', '.sticky-delete', '.sticky-resize']) dbl(view.el.querySelector(sel)!);
     expect(view.editing).toBe(false);
     dbl(bar(view));
     expect(view.editing).toBe(true);
@@ -543,10 +468,8 @@ describe('selection', () => {
     expect(cb.onPlainClick).not.toHaveBeenCalled();
   });
 
-  it('dot, palette and x clicks do not report onPlainClick', () => {
+  it('x clicks do not report onPlainClick', () => {
     const { view, cb } = makeSel();
-    click(view.el.querySelector('.sticky-palette')!);
-    click(view.el.querySelector('.sticky-dot--blue')!);
     click(view.el.querySelector('.sticky-delete')!);
     expect(cb.onPlainClick).not.toHaveBeenCalled();
   });
@@ -570,16 +493,15 @@ describe('selection', () => {
     expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
   });
 
-  it('modifier press+click on x, a dot and the resize corner only toggles selection', () => {
+  it('modifier press+click on x and the resize corner only toggles selection', () => {
     const { view, cb } = makeSel();
-    (view.el.querySelector('.sticky-palette') as HTMLElement).click();
-    for (const sel of ['.sticky-delete', '.sticky-dot--blue', '.sticky-resize']) {
+    for (const sel of ['.sticky-delete', '.sticky-resize']) {
       const t = view.el.querySelector(sel)!;
       ptr(t, 'pointerdown', 0, 0, { shiftKey: true });
       ptr(t, 'pointerup', 0, 0, { shiftKey: true });
       click(t, { shiftKey: true });
     }
-    expect(cb.onToggleSelect).toHaveBeenCalledTimes(3);
+    expect(cb.onToggleSelect).toHaveBeenCalledTimes(2);
     expect(cb.onDeleteRequest).not.toHaveBeenCalled();
     expect(cb.onChange).not.toHaveBeenCalled();
     expect(cb.onActivate).not.toHaveBeenCalled();
@@ -608,19 +530,6 @@ describe('selection', () => {
     click(body(view));
     expect(cb.onPlainClick).not.toHaveBeenCalled();
     expect(area(view)).toBeNull();
-  });
-
-  it('Escape that closes the note\'s colour dots is default-prevented; otherwise not', () => {
-    const { view } = makeSel();
-    const esc = () => {
-      const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-      view.el.dispatchEvent(e);
-      return e.defaultPrevented;
-    };
-    expect(esc()).toBe(false);
-    click(view.el.querySelector('.sticky-palette')!);
-    expect(esc()).toBe(true);
-    expect(esc()).toBe(false);
   });
 
   it('the selected outline is drawn from .sticky.selected', () => {

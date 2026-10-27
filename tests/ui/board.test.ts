@@ -441,7 +441,9 @@ describe('Board', () => {
     vi.advanceTimersByTime(300);
     pump();
     vi.advanceTimersByTime(10);
-    viewOf(a.root, m.id).querySelector<HTMLElement>('.sticky-dot--pink')!.click();
+    shiftClick(a.root, m.id);
+    selectionBar(a.root).querySelector<HTMLButtonElement>('[aria-label="Colour selected"]')!.click();
+    selectionBar(a.root).querySelector<HTMLButtonElement>('[aria-label="Colour pink"]')!.click();
     pump();
     expect(viewOf(b.root, m.id).querySelector('textarea')!.value).toBe('from B');
     endEdit(b.root, m.id);

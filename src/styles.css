@@ -10,7 +10,7 @@
   color-scheme: light;
 }
 
-/* Author display rules (e.g. .sticky-colors { display: flex }) would otherwise override the hidden attribute. */
+/* Author display rules (e.g. .selection-colors { display: flex }) would otherwise override the hidden attribute. */
 [hidden] {
   display: none !important;
 }
@@ -175,13 +175,7 @@
   gap: 4px;
 }
 
-.sticky-colors {
-  display: flex;
-  gap: 4px;
-  margin-right: 2px;
-}
-
-/* Rounded squares, grouped on the right: round dots on the left read as macOS window buttons. */
+/* Rounded squares: round dots read as macOS window buttons. */
 .sticky-dot {
   width: 14px;
   height: 14px;
@@ -189,23 +183,6 @@
   border: 1px solid var(--dot-border);
   border-radius: 3px;
   cursor: pointer;
-}
-
-.sticky-palette {
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  color: inherit;
-  background: none;
-  border: 0;
-  border-radius: 3px;
-  opacity: 0.6;
-  cursor: pointer;
-}
-
-.sticky-palette:hover,
-.sticky-palette[aria-expanded='true'] {
-  opacity: 1;
 }
 
 .sticky-dot--yellow { background: var(--dot-yellow); }
@@ -226,7 +203,6 @@
 }
 
 .sticky-dot:focus-visible,
-.sticky-palette:focus-visible,
 .sticky-delete:focus-visible,
 .sticky-text:focus-visible {
   outline: 2px solid var(--accent);

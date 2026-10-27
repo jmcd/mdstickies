@@ -20,6 +20,23 @@ const TEXT_DEBOUNCE_MS = 300;
 const BOARD_MARGIN = 200;
 const DRAG_THRESHOLD = 4;
 const UNDO_MS = 10_000;
+const DUPLICATE_OFFSET = 20;
+const NUDGE = { small: 1, large: 10 };
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const MOD = IS_MAC ? '⌘' : 'Ctrl+';
+const SHORTCUTS: Array<[string, string]> = [
+  ['N', 'New note'],
+  ['Enter', 'Edit the selected note'],
+  ['Esc', 'Stop editing · clear the selection'],
+  ['Shift+click', 'Select several notes (or drag a box on the board)'],
+  [`${MOD}A`, 'Select all'],
+  ['Arrows', 'Nudge selected notes (Shift: 10px)'],
+  [`${MOD}D`, 'Duplicate selected notes'],
+  ['Delete', 'Delete selected notes'],
+  [`${MOD}Z`, 'Undo a delete'],
+  [`${MOD}F`, 'Search'],
+  ['?', 'Show these shortcuts'],
+];
 const REPO_URL = 'https://github.com/jmcd/mdstickies';
 const GITHUB_ICON =
   '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
@@ -105,6 +122,11 @@ export class Board {
     repo.innerHTML = `${GITHUB_ICON}<span>GitHub</span>`;
     const end = document.createElement('div'); // one group, so a wrapping toolbar keeps them together at the right
     end.className = 'toolbar-end';
+    const help = this.barButton('?', () => void this.showHelp());
+    help.className = 'help-button';
+    help.setAttribute('aria-label', 'Keyboard shortcuts');
+    help.title = 'Keyboard shortcuts (?)';
+    end.append(help);
     if (this.deps.themeToggle) end.append(this.deps.themeToggle);
     end.append(repo);
     toolbar.append(end);
@@ -436,9 +458,28 @@ export class Board {
       this.setColourOpen(false);
       return;
     }
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    const command = isPrimaryShortcut(e) && !e.shiftKey && !e.altKey;
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected.size > 0) {
       e.preventDefault(); // Backspace can navigate back in some browsers
       this.deleteNotes(this.selectedIds());
+    } else if (plain && e.key.toLowerCase() === 'n') {
+      e.preventDefault(); // or the n lands in the new note's textarea
+      this.newSticky();
+    } else if (plain && e.key === '?') {
+      e.preventDefault();
+      void this.showHelp();
+    } else if (plain && e.key in ARROWS && this.selected.size > 0) {
+      e.preventDefault(); // don't scroll the page too
+      const [x, y] = ARROWS[e.key];
+      const step = e.shiftKey ? NUDGE.large : NUDGE.small;
+      this.nudge(x * step, y * step);
+    } else if (command && e.key.toLowerCase() === 'd' && this.selected.size > 0) {
+      e.preventDefault(); // the browser's bookmark shortcut
+      this.duplicateSelected();
+    } else if (plain && !e.shiftKey && e.key === 'Enter' && this.selected.size === 1 && !t?.closest('button, a')) {
+      e.preventDefault(); // or a newline lands in the textarea
+      this.views.get(this.selectedIds()[0])?.edit();
     } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && this.toast.open) {
       e.preventDefault();
       this.toast.run();
@@ -512,6 +553,52 @@ export class Board {
     if (!drag || drag.cancelled) return;
     drag.cancelled = true; // the pointerup that follows is then ignored
     for (const i of drag.ids) this.views.get(i)?.preview(0, 0);
+  }
+
+  private nudge(dx: number, dy: number): void {
+    const sel = this.selectedStickies();
+    const d = clampDelta(sel, dx, dy);
+    if (d.dx === 0 && d.dy === 0) return;
+    for (const s of sel) this.change(s.id, { x: s.x + d.dx, y: s.y + d.dy }, false);
+    this.resize();
+  }
+
+  // Copies go on top of everything, offset so they don't hide the originals, and become the selection.
+  private duplicateSelected(): void {
+    const top = this.maxZ();
+    const iso = this.now().toISOString();
+    const copies = this.selectedStickies()
+      .sort((a, b) => a.z - b.z)
+      .map((s, i): Sticky => ({
+        ...s,
+        id: crypto.randomUUID(),
+        x: s.x + DUPLICATE_OFFSET,
+        y: s.y + DUPLICATE_OFFSET,
+        z: top + 1 + i,
+        createdAt: iso,
+        updatedAt: iso,
+      }));
+    for (const c of copies) {
+      this.upsertView(c);
+      this.save(c);
+    }
+    this.resize();
+    this.setSelection(copies.map((c) => c.id));
+  }
+
+  private async showHelp(): Promise<void> {
+    const list = document.createElement('dl');
+    list.className = 'shortcuts';
+    for (const [keys, what] of SHORTCUTS) {
+      const dt = document.createElement('dt');
+      const kbd = document.createElement('kbd');
+      kbd.textContent = keys;
+      dt.append(kbd);
+      const dd = document.createElement('dd');
+      dd.textContent = what;
+      list.append(dt, dd);
+    }
+    await this.ask({ message: 'Keyboard shortcuts', content: list, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
   }
 
   // Deletes at once; the toast's Undo (or Ctrl/Cmd+Z) puts them back. Empty notes go without an offer.

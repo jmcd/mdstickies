@@ -40,6 +40,25 @@
   margin: 0 0 16px;
 }
 
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+}
+
+.shortcuts dt { white-space: nowrap; }
+.shortcuts dd { margin: 0; }
+
+.shortcuts kbd {
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

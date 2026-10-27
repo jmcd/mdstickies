@@ -96,3 +96,14 @@ describe('showDialog', () => {
     await p2;
   });
 });
+
+describe('showDialog content', () => {
+  it('shows extra content under the message', async () => {
+    const extra = document.createElement('dl');
+    extra.className = 'extra';
+    const p = showDialog({ message: 'Shortcuts', content: extra, buttons: [{ id: 'ok', label: 'OK' }], cancelId: 'ok' });
+    expect(document.querySelector('.dialog .dialog-message + .extra')).toBe(extra);
+    btn('OK').click();
+    expect(await p).toBe('ok');
+  });
+});

@@ -1256,3 +1256,118 @@ describe('theme toggle', () => {
 
   });
 });
+
+describe('keyboard shortcuts', () => {
+  const pos = (board: Board, id: string) => {
+    const s = board.stickies().find((n) => n.id === id)!;
+    return [s.x, s.y];
+  };
+
+  it('N makes a new note and starts editing it', () => {
+    const { board, root } = two();
+    const e = key(document.body, 'n');
+    expect(e.defaultPrevented).toBe(true);
+    expect(board.stickies()).toHaveLength(3);
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    key(document.activeElement!, 'n');
+    expect(board.stickies()).toHaveLength(3);
+    expect(root.querySelectorAll('textarea')).toHaveLength(1);
+  });
+
+  it('Ctrl+N is left to the browser', () => {
+    const { board } = two();
+    expect(key(document.body, 'n', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(board.stickies()).toHaveLength(2);
+  });
+
+  it('arrows nudge the selection 1px, Shift+arrows 10px, saving each move', () => {
+    const { board, root, store } = two();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    expect(key(document.body, 'ArrowRight').defaultPrevented).toBe(true);
+    key(document.body, 'ArrowDown', { shiftKey: true });
+    expect(pos(board, 'a')).toEqual([11, 30]);
+    expect(pos(board, 'b')).toEqual([501, 310]);
+    expect([store.get('a')!.x, store.get('a')!.y]).toEqual([11, 30]);
+    key(document.body, 'ArrowLeft', { shiftKey: true });
+    key(document.body, 'ArrowUp');
+    expect(pos(board, 'a')).toEqual([1, 29]);
+  });
+
+  it('nudging stops the whole selection at the board edge', () => {
+    const { board, root } = two();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    for (let i = 0; i < 3; i++) key(document.body, 'ArrowLeft', { shiftKey: true });
+    expect(pos(board, 'a')).toEqual([0, 20]);
+    expect(pos(board, 'b')).toEqual([490, 300]);
+  });
+
+  it('arrows with nothing selected scroll the page as usual', () => {
+    const { board } = two();
+    expect(key(document.body, 'ArrowDown').defaultPrevented).toBe(false);
+    expect(pos(board, 'a')).toEqual([10, 20]);
+  });
+
+  it('Ctrl+D duplicates the selection on top, offset, and selects the copies', () => {
+    const { board, root, store } = setup({ saved: [sticky({ id: 'a', text: 'one', color: 'pink', z: 1 }), sticky({ id: 'b', text: 'two', x: 500, z: 5 })] });
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    expect(key(document.body, 'd', { ctrlKey: true }).defaultPrevented).toBe(true);
+    const copies = board.stickies().filter((s) => s.id !== 'a' && s.id !== 'b');
+    expect(copies.map((s) => [s.text, s.color, s.x, s.y, s.z]).sort()).toEqual([
+      ['one', 'pink', 30, 40, 6],
+      ['two', 'yellow', 520, 40, 7],
+    ]);
+    expect(sorted(board)).toEqual(copies.map((s) => s.id).sort());
+    for (const c of copies) {
+      expect(store.get(c.id)).toEqual(c);
+      expect(c.createdAt).toBe('2026-10-25T12:00:00.000Z');
+    }
+  });
+
+  it('Ctrl+D with nothing selected is left to the browser', () => {
+    const { board } = two();
+    expect(key(document.body, 'd', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(board.stickies()).toHaveLength(2);
+  });
+
+  it('Enter edits the one selected note', () => {
+    const { root } = two();
+    shiftClick(root, 'b');
+    expect(key(document.body, 'Enter').defaultPrevented).toBe(true);
+    expect(viewOf(root, 'b').querySelector('textarea')).toBe(document.activeElement);
+  });
+
+  it('Enter does nothing with two notes selected, or on a focused button', () => {
+    const { root } = two();
+    shiftClick(root, 'a');
+    shiftClick(root, 'b');
+    key(document.body, 'Enter');
+    expect(root.querySelector('textarea')).toBeNull();
+    shiftClick(root, 'a');
+    key(button(root, 'Export'), 'Enter');
+    expect(root.querySelector('textarea')).toBeNull();
+  });
+
+  it('? and the toolbar ? button list the shortcuts', () => {
+    const { root, deps } = two();
+    expect(key(document.body, '?', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(deps.dialog).toHaveBeenCalledTimes(1);
+    const opts = deps.dialog.mock.calls[0][0];
+    expect(opts.message).toBe('Keyboard shortcuts');
+    for (const word of ['New note', 'Duplicate', 'Nudge', 'Search', 'Ctrl+D']) expect(opts.content!.textContent).toContain(word);
+    root.querySelector<HTMLButtonElement>('.toolbar .help-button')!.click();
+    expect(deps.dialog).toHaveBeenCalledTimes(2);
+  });
+
+  it('shortcut keys typed into a note or the search box are just text', () => {
+    const { board, root } = two();
+    shiftClick(root, 'a');
+    const search = root.querySelector<HTMLInputElement>('.search')!;
+    for (const k of ['n', '?', 'ArrowRight', 'Enter']) key(search, k);
+    expect(board.stickies()).toHaveLength(2);
+    expect(pos(board, 'a')).toEqual([10, 20]);
+    expect(root.querySelector('textarea')).toBeNull();
+  });
+});

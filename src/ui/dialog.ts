@@ -9,6 +9,7 @@ let active: { dismiss: () => void; previous: HTMLElement | null } | null = null;
 
 export function showDialog(opts: {
   message: string;
+  content?: Node;
   buttons: DialogButton[];
   cancelId: string;
 }): Promise<string> {
@@ -70,7 +71,7 @@ export function showDialog(opts: {
     });
     document.addEventListener('keydown', onKey, true);
 
-    dialog.append(message, actions);
+    dialog.append(message, ...(opts.content ? [opts.content] : []), actions);
     backdrop.append(dialog);
     document.body.append(backdrop);
     (first ?? actions.querySelector('button'))?.focus();

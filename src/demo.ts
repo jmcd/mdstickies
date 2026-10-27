@@ -6,16 +6,16 @@ export const WELCOMED_KEY = 'mdstickies:v1:welcomed';
 
 const DEMO: Array<{ text: string; x: number; y: number; width: number; height: number; color: StickyColor }> = [
   {
-    color: 'yellow', x: 40, y: 40, width: 300, height: 340,
+    color: 'yellow', x: 40, y: 40, width: 300, height: 380,
     text: `# Welcome to mdstickies
 
-Notes are written in **Markdown**. Click a note to edit it; click away to see it rendered.
+Notes are written in **Markdown**. Double-click a note to edit it; click away to see it rendered.
 
 - **bold**, *italic*, ~~strikethrough~~
 - \`inline code\`
 - [links](https://mdstickies.com) open in a new tab
 
-> Drag a note to move it, drag its corner to resize.`,
+> Click a note to select it, drag it to move it, drag its corner to resize. Press **?** for keyboard shortcuts.`,
   },
   {
     color: 'green', x: 370, y: 40, width: 260, height: 240,
@@ -23,7 +23,7 @@ Notes are written in **Markdown**. Click a note to edit it; click away to see it
 
 - [x] Open mdstickies
 - [ ] Tick a box (click it)
-- [ ] Make a note with **New**
+- [ ] Make a note with **New** (or press **N**, or paste some text)
 
 1. Numbered
 2. lists

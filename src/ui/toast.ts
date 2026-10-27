@@ -1,4 +1,4 @@
-// A single bottom-of-screen message with one action. Showing a new one replaces the old.
+// A single bottom-of-screen message, with an optional action. Showing a new one replaces the old.
 // The timer pauses while the pointer or focus is on it, so the action can't vanish mid-reach.
 export class Toast {
   readonly el = document.createElement('div');
@@ -26,10 +26,15 @@ export class Toast {
     return !this.el.hidden;
   }
 
-  show(message: string, actionLabel: string, onAction: () => void): void {
+  get hasAction(): boolean {
+    return this.open && this.onAction !== null;
+  }
+
+  show(message: string, actionLabel?: string, onAction?: () => void): void {
     this.message.textContent = message;
-    this.action.textContent = actionLabel;
-    this.onAction = onAction;
+    this.action.textContent = actionLabel ?? '';
+    this.action.hidden = !onAction;
+    this.onAction = onAction ?? null;
     this.el.hidden = false;
     this.restart();
   }

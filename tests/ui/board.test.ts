@@ -26,6 +26,7 @@ function setup(opts: { saved?: Sticky[]; storage?: Storage | null; answers?: str
     dialog: vi.fn(opts.dialog ?? (async () => answers.shift() ?? 'cancel')),
     download: vi.fn(),
     pickFile: vi.fn(async () => (opts.file === undefined ? null : opts.file)),
+    writeClipboard: vi.fn(async (_data: Record<string, string>) => {}),
   } satisfies BoardDeps;
   const root = document.createElement('div');
   document.body.appendChild(root);
@@ -60,7 +61,7 @@ function pointerdown(el: Element) {
 const docKeyListeners: Array<[string, EventListener]> = [];
 const realAdd = document.addEventListener.bind(document);
 document.addEventListener = ((type: string, fn: EventListener, o?: unknown) => {
-  if (type === 'keydown' || type === 'paste') docKeyListeners.push([type, fn]);
+  if (type === 'keydown' || type === 'paste' || type === 'copy') docKeyListeners.push([type, fn]);
   realAdd(type, fn, o as AddEventListenerOptions);
 }) as typeof document.addEventListener;
 
@@ -493,13 +494,16 @@ describe('selection', () => {
     expect(board.selectedIds()).toEqual(['b']);
   });
 
-  it('a plain click on a note clears the selection; Deselect clears it and hides the bar', () => {
+  it('a plain click on a note selects just that note; Deselect clears it and hides the bar', () => {
     const { board, root } = two();
     shiftClick(root, 'a');
     ptr(bar(root, 'b'), 'pointerdown', 5, 5);
     ptr(bar(root, 'b'), 'pointerup', 5, 5);
     bar(root, 'b').click();
-    expect(board.selectedIds()).toEqual([]);
+    expect(board.selectedIds()).toEqual(['b']);
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    expect(board.selectedIds()).toEqual(['a']);
+    expect(viewOf(root, 'a').querySelector('textarea')).toBeNull();
     shiftClick(root, 'a');
     const d = [...selectionBar(root).querySelectorAll('button')].find((b) => b.textContent === 'Deselect')!;
     d.click();
@@ -573,7 +577,7 @@ describe('selection', () => {
 
   it('keys are ignored while a note is being edited or in a textarea', () => {
     const { board, root } = two();
-    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     const ta = viewOf(root, 'a').querySelector('textarea')!;
     key(ta, 'a', { ctrlKey: true });
     key(document.body, 'a', { ctrlKey: true });
@@ -599,7 +603,7 @@ describe('selection', () => {
 
   it('modifier-clicking another note ends the edit in progress and saves its text', () => {
     const { board, store, root } = two();
-    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     const ta = viewOf(root, 'a').querySelector('textarea')!;
     ta.focus();
     type(root, 'a', 'edited');
@@ -719,14 +723,14 @@ describe('review fixes', () => {
     }
   });
 
-  it('a plain click on a selected note brings it to front and clears the selection', () => {
+  it('a plain click on a selected note brings it to front and selects just it', () => {
     const { board, root } = trio();
     shiftClick(root, 'a');
     shiftClick(root, 'b');
     ptr(bar(root, 'a'), 'pointerdown', 5, 5);
     ptr(bar(root, 'a'), 'pointerup', 5, 5);
     bar(root, 'a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(board.selectedIds()).toEqual([]);
+    expect(board.selectedIds()).toEqual(['a']);
     expect(board.stickies().find((s) => s.id === 'a')!.z).toBe(4);
   });
 
@@ -743,7 +747,7 @@ describe('review fixes', () => {
     vi.useFakeTimers();
     try {
       const { root, store } = setup({ saved: [sticky({ id: 'a' })] });
-      viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+      viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
       type(root, 'a', 'changed');
       const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
       boardEl(root).dispatchEvent(e);
@@ -842,12 +846,12 @@ describe('group move', () => {
     expect(board.stickies().map((s) => s.id)).toEqual(['a', 'c']);
   });
 
-  it('dragging an unselected note clears the selection and moves only it', () => {
+  it('dragging an unselected note selects just it and moves only it', () => {
     const { board, root } = trio();
     shiftClick(root, 'a');
     shiftClick(root, 'b');
     drag(root, 'c', 50, 60);
-    expect(board.selectedIds()).toEqual([]);
+    expect(board.selectedIds()).toEqual(['c']);
     expect(pos(board, 'c')).toEqual([650, 150]);
     expect(pos(board, 'a')).toEqual([10, 20]);
     expect(pos(board, 'b')).toEqual([300, 40]);
@@ -1356,7 +1360,7 @@ describe('keyboard shortcuts', () => {
     expect(deps.dialog).toHaveBeenCalledTimes(1);
     const opts = deps.dialog.mock.calls[0][0];
     expect(opts.message).toBe('Keyboard shortcuts');
-    for (const word of ['New note', 'Duplicate', 'Nudge', 'Search', 'Ctrl+D', 'Paste text']) expect(opts.content!.textContent).toContain(word);
+    for (const word of ['New note', 'Duplicate', 'Nudge', 'Search', 'Ctrl+D', 'Paste notes or text', 'Double-click', 'Copy selected notes', 'Ctrl+click', 'Backspace', 'while the Undo message shows', 'Esc clears it']) expect(opts.content!.textContent).toContain(word);
     root.querySelector<HTMLButtonElement>('.toolbar .help-button')!.click();
     expect(deps.dialog).toHaveBeenCalledTimes(2);
   });
@@ -1419,7 +1423,7 @@ describe('paste', () => {
     const { board, root } = two();
     const search = root.querySelector<HTMLInputElement>('.search')!;
     expect(paste(search, 'find me').defaultPrevented).toBe(false);
-    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(paste(viewOf(root, 'a').querySelector('textarea')!, 'more').defaultPrevented).toBe(false);
     expect(board.stickies()).toHaveLength(2);
   });
@@ -1430,5 +1434,104 @@ describe('paste', () => {
     void board.clearBoard();
     paste(document.body, 'later');
     expect(board.stickies()).toHaveLength(2);
+  });
+});
+
+describe('copy', () => {
+  const pair = () => setup({ saved: [
+    sticky({ id: 'a', text: 'first', x: 100, y: 100, color: 'pink', width: 300, z: 3 }),
+    sticky({ id: 'b', text: 'second', x: 150, y: 400, z: 1 }),
+  ] });
+  const clipEvent = (type: 'copy' | 'paste', target: EventTarget = document.body, data: Record<string, string> = {}) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'clipboardData', { value: { setData: (t: string, v: string) => { data[t] = v; }, getData: (t: string) => data[t] ?? '' } });
+    target.dispatchEvent(e);
+    return { e, data };
+  };
+  const selectBoth = (root: HTMLElement) => { shiftClick(root, 'a'); shiftClick(root, 'b'); };
+  const copyButton = (root: HTMLElement, label: string) =>
+    [...selectionBar(root).querySelectorAll('button')].find((b) => b.textContent === label)!;
+  const toastText = (root: HTMLElement) => toast(root).querySelector('span')!.textContent;
+
+  it('Ctrl/Cmd+C copies the selected notes with everything, and says so', () => {
+    const { root } = pair();
+    selectBoth(root);
+    const { e, data } = clipEvent('copy');
+    expect(e.defaultPrevented).toBe(true);
+    expect(data['text/plain']).toBe('first\n\nsecond');
+    expect(data['text/html']).toContain('data-mdstickies');
+    expect(toastText(root)).toBe('Copied 2 notes');
+    expect(toast(root).querySelector<HTMLElement>('.toast-action')!.hidden).toBe(true);
+  });
+
+  it('copying is left alone with nothing selected, while editing, in the search box, or with text highlighted', () => {
+    const { root } = pair();
+    expect(clipEvent('copy').e.defaultPrevented).toBe(false);
+    shiftClick(root, 'a');
+    expect(clipEvent('copy', root.querySelector('.search')!).e.defaultPrevented).toBe(false);
+    const range = document.createRange();
+    range.selectNodeContents(viewOf(root, 'b').querySelector('.sticky-body')!);
+    getSelection()!.removeAllRanges(); // a range left by an earlier test would make addRange a no-op
+    getSelection()!.addRange(range);
+    expect(clipEvent('copy').e.defaultPrevented).toBe(false);
+    getSelection()!.removeAllRanges();
+    viewOf(root, 'b').querySelector<HTMLElement>('.sticky-body')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(clipEvent('copy', viewOf(root, 'b').querySelector('textarea')!).e.defaultPrevented).toBe(false);
+  });
+
+  it('the Copy, Copy text and Copy Markdown buttons write their own kind of copy', async () => {
+    const { root, deps } = pair();
+    selectBoth(root);
+    copyButton(root, 'Copy').click();
+    await settle();
+    expect(deps.writeClipboard.mock.calls[0][0]['text/html']).toContain('data-mdstickies');
+    expect(toastText(root)).toBe('Copied 2 notes');
+    copyButton(root, 'Copy text').click();
+    await settle();
+    expect(deps.writeClipboard.mock.calls[1][0]['text/html']).not.toContain('data-mdstickies');
+    expect(toastText(root)).toBe('Copied 2 notes as text');
+    copyButton(root, 'Copy Markdown').click();
+    await settle();
+    expect(deps.writeClipboard.mock.calls[2][0]).toEqual({ 'text/plain': 'first\n\nsecond' });
+    expect(toastText(root)).toBe('Copied 2 notes as Markdown');
+  });
+
+  it('says so when the browser refuses to copy', async () => {
+    const { root, deps } = pair();
+    shiftClick(root, 'a');
+    deps.writeClipboard.mockRejectedValueOnce(new Error('denied'));
+    copyButton(root, 'Copy').click();
+    await settle();
+    expect(toastText(root)).toBe("Couldn't copy to the clipboard");
+  });
+
+  it('pasting copied notes recreates them at the pointer, on top and selected; twice gives two sets', () => {
+    const { board, root } = pair();
+    selectBoth(root);
+    const { data } = clipEvent('copy');
+    ptr(boardEl(root), 'pointermove', 600, 50, { buttons: 0 });
+    expect(clipEvent('paste', document.body, data).e.defaultPrevented).toBe(true);
+    const copies = board.stickies().filter((s) => s.id !== 'a' && s.id !== 'b');
+    expect(copies.map((s) => [s.text, s.color, s.width, s.x, s.y, s.z]).sort()).toEqual([
+      ['first', 'pink', 300, 600, 50, 5],
+      ['second', 'yellow', 220, 650, 350, 4],
+    ]);
+    expect(board.selectedIds().sort()).toEqual(copies.map((s) => s.id).sort());
+    clipEvent('paste', document.body, data);
+    expect(board.stickies()).toHaveLength(6);
+  });
+
+  it('a paste whose hidden notes are damaged falls back to the plain text', () => {
+    const { board } = pair();
+    clipEvent('paste', document.body, { 'text/html': '<div data-mdstickies="{oops">x</div>', 'text/plain': 'just text' });
+    expect(board.stickies().map((s) => s.text)).toContain('just text');
+    expect(board.stickies()).toHaveLength(3);
+  });
+
+  it('Ctrl+Z with only a "copied" message showing is left to the browser', () => {
+    const { root } = pair();
+    shiftClick(root, 'a');
+    clipEvent('copy');
+    expect(key(document.body, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
   });
 });

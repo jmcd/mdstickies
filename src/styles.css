@@ -28,6 +28,8 @@
 .dialog {
   min-width: 260px;
   max-width: min(420px, 90vw);
+  max-height: 90vh; /* the shortcuts list is long: scroll rather than push OK off a short screen */
+  overflow-y: auto;
   padding: 20px;
   background: var(--surface);
   color: var(--text);

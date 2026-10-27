@@ -131,6 +131,7 @@ export class StickyView {
     el.addEventListener('focusin', () => cb.onActivate(this.sticky.id));
     el.addEventListener('focusout', (e) => this.onFocusOut(e));
     el.addEventListener('click', (e) => this.onClick(e));
+    el.addEventListener('dblclick', (e) => this.onDoubleClick(e));
     // Keep focus in the textarea when pressing a dot or x (Safari/Firefox-mac don't focus buttons; Chrome would).
     // A modifier press must not extend a text selection or move focus (Chrome does both on mousedown, not pointerdown).
     el.addEventListener('mousedown', (e) => {
@@ -264,7 +265,7 @@ export class StickyView {
       this.cb.onDeleteRequest(this.sticky.id);
       return;
     }
-    if (!this.suppressClick) this.cb.onPlainClick?.(this.sticky.id);
+    if (!this.suppressClick && !this.editing) this.cb.onPlainClick?.(this.sticky.id);
     if (!this.bodyEl.contains(t) || this.editing) return;
     const box = t.closest<HTMLInputElement>('input[data-task-index]');
     if (box) {
@@ -274,11 +275,14 @@ export class StickyView {
       this.cb.onChange(this.sticky.id, { text }, { debounce: false });
       return;
     }
-    if (t.closest('a')) return;
-    if (this.suppressClick) {
-      this.suppressClick = false;
-      return;
-    }
+    this.suppressClick = false;
+  }
+
+  // Like a shape in a drawing app: a click selects (Board, via onPlainClick); a double-click edits.
+  private onDoubleClick(e: MouseEvent): void {
+    const t = e.target as HTMLElement;
+    if (this.editing || isSelectModifier(e) || t.closest('a, input, .sticky-tools, .sticky-resize')) return;
+    e.preventDefault();
     this.edit();
   }
 

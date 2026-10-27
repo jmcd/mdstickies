@@ -25,6 +25,20 @@ describe('seedDemo', () => {
       expect(html).toContain(tag);
   });
 
+  it('tells you how to select and edit a note', () => {
+    const storage = new FakeStorage();
+    const text = seedDemo(storage, new StickyStore(storage), now).map((s) => s.text).join('\n');
+    expect(text).toContain('Double-click a note to edit it');
+    expect(text).not.toMatch(/(^|[^-])[Cc]lick a note to edit/);
+  });
+
+  it('points to the shortcuts list and the quick ways to make a note', () => {
+    const storage = new FakeStorage();
+    const text = seedDemo(storage, new StickyStore(storage), now).map((s) => s.text).join('\n');
+    expect(text).toContain('Press **?** for keyboard shortcuts');
+    expect(text).toContain('press **N**, or paste some text');
+  });
+
   it('does not seed again once welcomed, even if the board is empty', () => {
     const storage = new FakeStorage();
     const store = new StickyStore(storage);

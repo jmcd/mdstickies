@@ -134,9 +134,11 @@ describe('StickyView', () => {
     expect(body(view).innerHTML).toContain('<h2');
   });
 
-  it('click on rendered body enters edit mode with raw text', () => {
+  it('a click on the rendered body does not edit; a double-click enters edit mode with raw text', () => {
     const { view, cb } = make();
     body(view).click();
+    expect(view.editing).toBe(false);
+    body(view).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(view.editing).toBe(true);
     expect(area(view).value).toBe('## x');
     expect(cb.onEditStart).toHaveBeenCalledWith('s1');
@@ -270,17 +272,6 @@ describe('StickyView', () => {
     b.click();
     expect(view.editing).toBe(false);
     expect(cb.onChange).toHaveBeenCalledWith('s1', { x: 120, y: 50 }, { debounce: false });
-  });
-
-  it('small movement on the body still counts as a click', () => {
-    const { view, cb } = make();
-    const b = body(view);
-    ptr(b, 'pointerdown', 0, 0);
-    ptr(b, 'pointermove', 2, 1);
-    ptr(b, 'pointerup', 2, 1);
-    b.click();
-    expect(view.editing).toBe(true);
-    expect(cb.onChange).not.toHaveBeenCalled();
   });
 
   it('resize handle reports width/height, not below MIN_SIZE', () => {
@@ -509,12 +500,38 @@ describe('selection', () => {
     expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
   });
 
-  it('a plain click reports onPlainClick before entering edit', () => {
+  it('a plain click reports onPlainClick and does not edit', () => {
     const { view, cb } = makeSel();
-    cb.onEditStart.mockImplementation(() => expect(cb.onPlainClick).toHaveBeenCalledWith('s1'));
     click(body(view));
     expect(cb.onPlainClick).toHaveBeenCalledTimes(1);
-    expect(cb.onEditStart).toHaveBeenCalled();
+    expect(cb.onEditStart).not.toHaveBeenCalled();
+  });
+
+  it('double-clicking the bar edits; double-clicking a link, checkbox, the tools or the corner does not', () => {
+    const { view } = makeSel({ text: '- [ ] a\n\n[l](https://x.test)' });
+    const dbl = (t: Element) => t.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    for (const sel of ['a', 'input[data-task-index="0"]', '.sticky-palette', '.sticky-delete', '.sticky-resize']) dbl(view.el.querySelector(sel)!);
+    expect(view.editing).toBe(false);
+    dbl(bar(view));
+    expect(view.editing).toBe(true);
+  });
+
+  it('clicks inside the note being edited are not reported as plain clicks', () => {
+    const { view, cb } = makeSel();
+    view.edit();
+    click(area(view));
+    expect(cb.onPlainClick).not.toHaveBeenCalled();
+  });
+
+  it('small movement on the body still counts as a click', () => {
+    const { view, cb } = makeSel();
+    const b = body(view);
+    ptr(b, 'pointerdown', 0, 0);
+    ptr(b, 'pointermove', 2, 1);
+    ptr(b, 'pointerup', 2, 1);
+    click(b);
+    expect(cb.onPlainClick).toHaveBeenCalledWith('s1');
+    expect(cb.onChange).not.toHaveBeenCalled();
   });
 
   it('a click ending a drag does not report onPlainClick', () => {

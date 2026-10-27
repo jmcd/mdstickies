@@ -1,3 +1,4 @@
+import { clipboardData, notesFromClipboard, writeClipboard, type CopyKind } from '../clipboard';
 import { alignLeft, alignTop, cascade, clampDelta, grid, normalizeRect, sameSize, toFront, touches, type Layout } from '../arrange';
 import { COLORS, createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
 import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard } from '../format';
@@ -13,6 +14,7 @@ export interface BoardDeps {
   download: typeof downloadFile;
   pickFile: typeof pickFile;
   themeToggle?: HTMLElement;
+  writeClipboard?: (data: Record<string, string>) => Promise<void>;
   now?: () => Date;
 }
 
@@ -26,16 +28,19 @@ const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRigh
 const MOD = IS_MAC ? '⌘' : 'Ctrl+';
 const SHORTCUTS: Array<[string, string]> = [
   ['N', 'New note'],
+  ['Click', 'Select a note'],
+  ['Double-click', 'Edit a note'],
   ['Enter', 'Edit the selected note'],
   ['Esc', 'Stop editing · clear the selection'],
-  ['Shift+click', 'Select several notes (or drag a box on the board)'],
+  [`Shift+click, ${MOD}click`, 'Add a note to the selection (or drag a box on the board)'],
   [`${MOD}A`, 'Select all'],
   ['Arrows', 'Nudge selected notes (Shift: 10px)'],
   [`${MOD}D`, 'Duplicate selected notes'],
-  [`${MOD}V`, 'Paste text as a new note (at the pointer)'],
-  ['Delete', 'Delete selected notes'],
-  [`${MOD}Z`, 'Undo a delete'],
-  [`${MOD}F`, 'Search'],
+  [`${MOD}C`, 'Copy selected notes (paste them into any mdstickies)'],
+  [`${MOD}V`, 'Paste notes or text (at the pointer)'],
+  ['Delete, Backspace', 'Delete selected notes'],
+  [`${MOD}Z`, 'Undo a delete (while the Undo message shows)'],
+  [`${MOD}F`, 'Search (Esc clears it)'],
   ['?', 'Show these shortcuts'],
 ];
 const REPO_URL = 'https://github.com/jmcd/mdstickies';
@@ -110,6 +115,11 @@ export class Board {
       ['Front', () => this.applyLayout(toFront(this.selectedStickies(), this.maxZ()))],
     ];
     for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
+    this.selectionBar.append(
+      this.barButton('Copy', () => void this.copySelected('notes')),
+      this.barButton('Copy text', () => void this.copySelected('text')),
+      this.barButton('Copy Markdown', () => void this.copySelected('markdown')),
+    );
     this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
     this.selectionBar.append(this.barButton('Delete', () => this.deleteNotes(this.selectedIds())));
     this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
@@ -159,6 +169,7 @@ export class Board {
     this.boardEl.addEventListener('pointerleave', () => { this.pointer = null; });
     document.addEventListener('keydown', (e) => this.onKey(e));
     document.addEventListener('paste', (e) => this.onPaste(e));
+    document.addEventListener('copy', (e) => this.onCopy(e));
 
     for (const s of this.store.loadAll()) this.upsertView(s);
     this.resize();
@@ -194,20 +205,57 @@ export class Board {
     };
   }
 
-  // Pasting text anywhere but a text field makes a note of it, at the pointer if it's over the board.
-  private onPaste(e: ClipboardEvent): void {
-    if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
+  // Clipboard events in a text field, mid-edit or under a dialog are ordinary text copy/paste.
+  private clipboardIsOurs(e: ClipboardEvent): boolean {
+    if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return false;
     const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    return !(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable));
+  }
+
+  // Pasting copied notes recreates them; other text becomes a note. Either lands at the pointer if it's over the board.
+  private onPaste(e: ClipboardEvent): void {
+    if (!this.clipboardIsOurs(e)) return;
+    const at = this.pointer ? { x: this.pointer[0], y: this.pointer[1] } : this.midScreen();
+    const notes = notesFromClipboard(e.clipboardData?.getData('text/html') ?? '');
+    if (notes) {
+      e.preventDefault();
+      this.placeCopies(notes, at);
+      return;
+    }
     const text = (e.clipboardData?.getData('text/plain') ?? '').replace(/\r\n?/g, '\n');
     if (!text.trim()) return;
     e.preventDefault();
-    const at = this.pointer ? { x: this.pointer[0], y: this.pointer[1] } : this.midScreen();
     const s = { ...createSticky({ ...at, z: this.maxZ() + 1 }, this.now()), text };
     this.upsertView(s);
     this.resize();
     this.save(s);
     this.setSelection([s.id]);
+  }
+
+  // Ctrl/Cmd+C with notes selected copies them whole; highlighted text is copied as usual instead.
+  private onCopy(e: ClipboardEvent): void {
+    if (!this.clipboardIsOurs(e) || this.selected.size === 0 || !e.clipboardData) return;
+    if (getSelection()?.isCollapsed === false) return;
+    e.preventDefault();
+    for (const [type, value] of Object.entries(clipboardData(this.selectedStickies(), 'notes'))) e.clipboardData.setData(type, value);
+    this.toast.show(this.copiedMessage('notes'));
+  }
+
+  private async copySelected(kind: CopyKind): Promise<void> {
+    const sel = this.selectedStickies();
+    if (!sel.length) return;
+    try {
+      await (this.deps.writeClipboard ?? writeClipboard)(clipboardData(sel, kind));
+      this.toast.show(this.copiedMessage(kind));
+    } catch {
+      this.toast.show("Couldn't copy to the clipboard");
+    }
+  }
+
+  private copiedMessage(kind: CopyKind): string {
+    const n = this.selected.size;
+    const what = `Copied ${n} ${n === 1 ? 'note' : 'notes'}`;
+    return kind === 'text' ? `${what} as text` : kind === 'markdown' ? `${what} as Markdown` : what;
   }
 
   exportBoard(): void {
@@ -506,7 +554,7 @@ export class Board {
     } else if (plain && !e.shiftKey && e.key === 'Enter' && this.selected.size === 1 && !t?.closest('button, a')) {
       e.preventDefault(); // or a newline lands in the textarea
       this.views.get(this.selectedIds()[0])?.edit();
-    } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && this.toast.open) {
+    } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && this.toast.hasAction) {
       e.preventDefault();
       this.toast.run();
     } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && !(IS_MAC && e.ctrlKey) && e.key.toLowerCase() === 'a') {
@@ -589,17 +637,29 @@ export class Board {
     this.resize();
   }
 
-  // Copies go on top of everything, offset so they don't hide the originals, and become the selection.
+  // Copies sit offset so they don't hide the originals.
   private duplicateSelected(): void {
+    const sel = this.selectedStickies();
+    if (!sel.length) return;
+    const x = Math.min(...sel.map((s) => s.x)) + DUPLICATE_OFFSET;
+    const y = Math.min(...sel.map((s) => s.y)) + DUPLICATE_OFFSET;
+    this.placeCopies(sel, { x, y });
+  }
+
+  // New notes copied from these, keeping their layout with its top-left corner at `at`, on top of
+  // everything (stacked as before) and selected.
+  private placeCopies(notes: Sticky[], at: { x: number; y: number }): void {
+    const dx = at.x - Math.min(...notes.map((s) => s.x));
+    const dy = at.y - Math.min(...notes.map((s) => s.y));
     const top = this.maxZ();
     const iso = this.now().toISOString();
-    const copies = this.selectedStickies()
+    const copies = [...notes]
       .sort((a, b) => a.z - b.z)
       .map((s, i): Sticky => ({
         ...s,
         id: crypto.randomUUID(),
-        x: s.x + DUPLICATE_OFFSET,
-        y: s.y + DUPLICATE_OFFSET,
+        x: Math.max(0, s.x + dx),
+        y: Math.max(0, s.y + dy),
         z: top + 1 + i,
         createdAt: iso,
         updatedAt: iso,
@@ -665,14 +725,14 @@ export class Board {
     }
     const view = new StickyView(s, {
       onChange: (id, changes, { debounce }) => {
-        if ('x' in changes && this.selected.size > 0 && !this.selected.has(id)) this.setSelection([]); // dragging an unselected note drops the selection
+        if ('x' in changes && !this.selected.has(id)) this.setSelection([id]); // dragging an unselected note selects just it
         this.change(id, changes, debounce);
       },
       onGroupMove: (id, dx, dy, phase) => this.groupMove(id, dx, dy, phase),
       onActivate: (id) => this.activate(id),
       onEditStart: (id) => { this.editingId = id; this.setSelection([]); this.applySearch(); },
       onToggleSelect: (id) => this.toggleSelect(id),
-      onPlainClick: (id) => { this.activate(id); this.setSelection([]); },
+      onPlainClick: (id) => { this.activate(id); this.setSelection([id]); },
       onEditEnd: (id) => this.endEdit(id),
       onDeleteRequest: (id) => this.deleteNotes([id]),
     });

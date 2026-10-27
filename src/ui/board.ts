@@ -32,6 +32,7 @@ const SHORTCUTS: Array<[string, string]> = [
   [`${MOD}A`, 'Select all'],
   ['Arrows', 'Nudge selected notes (Shift: 10px)'],
   [`${MOD}D`, 'Duplicate selected notes'],
+  [`${MOD}V`, 'Paste text as a new note (at the pointer)'],
   ['Delete', 'Delete selected notes'],
   [`${MOD}Z`, 'Undo a delete'],
   [`${MOD}F`, 'Search'],
@@ -67,6 +68,7 @@ export class Board {
   private readonly searchBox = document.createElement('input');
   private readonly searchCount = document.createElement('span');
   private query = '';
+  private pointer: [number, number] | null = null; // last pointer position over the board, in board coordinates
   private readonly now: () => Date;
 
   constructor(
@@ -153,7 +155,10 @@ export class Board {
     this.boardEl.addEventListener('pointerup', () => this.boxEnd(true));
     this.boardEl.addEventListener('pointercancel', () => this.boxEnd(false));
     this.boardEl.addEventListener('lostpointercapture', () => this.boxEnd(false));
+    this.boardEl.addEventListener('pointermove', (e) => { this.pointer = this.local(e); });
+    this.boardEl.addEventListener('pointerleave', () => { this.pointer = null; });
     document.addEventListener('keydown', (e) => this.onKey(e));
+    document.addEventListener('paste', (e) => this.onPaste(e));
 
     for (const s of this.store.loadAll()) this.upsertView(s);
     this.resize();
@@ -174,14 +179,35 @@ export class Board {
   }
 
   newSticky(): Sticky {
-    const x = window.scrollX + window.innerWidth / 2 - DEFAULT_SIZE.width / 2;
-    const y = window.scrollY + window.innerHeight / 2 - DEFAULT_SIZE.height / 2;
-    const s = createSticky({ x, y, z: this.maxZ() + 1 }, this.now());
+    const s = createSticky({ ...this.midScreen(), z: this.maxZ() + 1 }, this.now());
     this.upsertView(s);
     this.resize();
     this.save(s);
     this.views.get(s.id)!.edit();
     return s;
+  }
+
+  private midScreen(): { x: number; y: number } {
+    return {
+      x: window.scrollX + window.innerWidth / 2 - DEFAULT_SIZE.width / 2,
+      y: window.scrollY + window.innerHeight / 2 - DEFAULT_SIZE.height / 2,
+    };
+  }
+
+  // Pasting text anywhere but a text field makes a note of it, at the pointer if it's over the board.
+  private onPaste(e: ClipboardEvent): void {
+    if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const text = (e.clipboardData?.getData('text/plain') ?? '').replace(/\r\n?/g, '\n');
+    if (!text.trim()) return;
+    e.preventDefault();
+    const at = this.pointer ? { x: this.pointer[0], y: this.pointer[1] } : this.midScreen();
+    const s = { ...createSticky({ ...at, z: this.maxZ() + 1 }, this.now()), text };
+    this.upsertView(s);
+    this.resize();
+    this.save(s);
+    this.setSelection([s.id]);
   }
 
   exportBoard(): void {

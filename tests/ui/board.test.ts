@@ -57,10 +57,10 @@ function pointerdown(el: Element) {
   el.dispatchEvent(typeof PointerEvent !== 'undefined' ? new PointerEvent('pointerdown', init) : new MouseEvent('pointerdown', init));
 }
 
-const docKeyListeners: EventListener[] = [];
+const docKeyListeners: Array<[string, EventListener]> = [];
 const realAdd = document.addEventListener.bind(document);
 document.addEventListener = ((type: string, fn: EventListener, o?: unknown) => {
-  if (type === 'keydown') docKeyListeners.push(fn);
+  if (type === 'keydown' || type === 'paste') docKeyListeners.push([type, fn]);
   realAdd(type, fn, o as AddEventListenerOptions);
 }) as typeof document.addEventListener;
 
@@ -69,7 +69,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-25T12:00:00.000Z'));
 });
 afterEach(() => {
-  for (const fn of docKeyListeners.splice(0)) document.removeEventListener('keydown', fn); // boards from earlier tests stay alive
+  for (const [type, fn] of docKeyListeners.splice(0)) document.removeEventListener(type, fn); // boards from earlier tests stay alive
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -1356,7 +1356,7 @@ describe('keyboard shortcuts', () => {
     expect(deps.dialog).toHaveBeenCalledTimes(1);
     const opts = deps.dialog.mock.calls[0][0];
     expect(opts.message).toBe('Keyboard shortcuts');
-    for (const word of ['New note', 'Duplicate', 'Nudge', 'Search', 'Ctrl+D']) expect(opts.content!.textContent).toContain(word);
+    for (const word of ['New note', 'Duplicate', 'Nudge', 'Search', 'Ctrl+D', 'Paste text']) expect(opts.content!.textContent).toContain(word);
     root.querySelector<HTMLButtonElement>('.toolbar .help-button')!.click();
     expect(deps.dialog).toHaveBeenCalledTimes(2);
   });
@@ -1369,5 +1369,66 @@ describe('keyboard shortcuts', () => {
     expect(board.stickies()).toHaveLength(2);
     expect(pos(board, 'a')).toEqual([10, 20]);
     expect(root.querySelector('textarea')).toBeNull();
+  });
+});
+
+describe('paste', () => {
+  const paste = (target: EventTarget, text: string | null) => {
+    const e = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'clipboardData', { value: { getData: (type: string) => (type === 'text/plain' ? text ?? '' : '') } });
+    target.dispatchEvent(e);
+    return e;
+  };
+  const newOnes = (board: Board) => board.stickies().filter((s) => s.id !== 'a' && s.id !== 'b');
+
+  it('pasting text on the board makes a selected, rendered note on top, and saves it', () => {
+    const { board, root, store } = two();
+    expect(paste(document.body, '- [ ] milk\r\n- [ ] eggs').defaultPrevented).toBe(true);
+    const [s] = newOnes(board);
+    expect(s.text).toBe('- [ ] milk\n- [ ] eggs');
+    expect(s.z).toBe(2);
+    expect(store.get(s.id)).toEqual(s);
+    expect(board.selectedIds()).toEqual([s.id]);
+    expect(root.querySelector('textarea')).toBeNull();
+    expect(viewOf(root, s.id).querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+  });
+
+  it('puts the note at the mouse pointer when it is over the board', () => {
+    const { board, root } = two();
+    ptr(boardEl(root), 'pointermove', 300, 200, { buttons: 0 });
+    paste(document.body, 'here');
+    expect(newOnes(board).map((s) => [s.x, s.y])).toEqual([[300, 200]]);
+  });
+
+  it('puts the note mid-screen when the pointer is not over the board', () => {
+    const { board, root } = two();
+    ptr(boardEl(root), 'pointermove', 300, 200, { buttons: 0 });
+    boardEl(root).dispatchEvent(new Event('pointerleave'));
+    paste(document.body, 'middle');
+    expect(newOnes(board).map((s) => [s.x, s.y])).toEqual([[window.innerWidth / 2 - 110, window.innerHeight / 2 - 90]]);
+  });
+
+  it('blank text, or nothing but an image, makes no note', () => {
+    const { board } = two();
+    expect(paste(document.body, '  \n ').defaultPrevented).toBe(false);
+    expect(paste(document.body, null).defaultPrevented).toBe(false);
+    expect(board.stickies()).toHaveLength(2);
+  });
+
+  it('pasting into a note being edited or the search box is ordinary text pasting', () => {
+    const { board, root } = two();
+    const search = root.querySelector<HTMLInputElement>('.search')!;
+    expect(paste(search, 'find me').defaultPrevented).toBe(false);
+    viewOf(root, 'a').querySelector<HTMLElement>('.sticky-body')!.click();
+    expect(paste(viewOf(root, 'a').querySelector('textarea')!, 'more').defaultPrevented).toBe(false);
+    expect(board.stickies()).toHaveLength(2);
+  });
+
+  it('nothing happens while a dialog is open', () => {
+    const { board, deps } = two();
+    deps.dialog.mockReturnValueOnce(new Promise(() => {}));
+    void board.clearBoard();
+    paste(document.body, 'later');
+    expect(board.stickies()).toHaveLength(2);
   });
 });

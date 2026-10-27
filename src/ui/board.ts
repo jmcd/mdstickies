@@ -136,7 +136,8 @@ export class Board {
     repo.target = '_blank';
     repo.rel = 'noopener noreferrer';
     repo.title = 'mdstickies on GitHub';
-    repo.innerHTML = `${GITHUB_ICON}<span>GitHub</span>`;
+    repo.setAttribute('aria-label', repo.title);
+    repo.innerHTML = GITHUB_ICON;
     const end = document.createElement('div'); // one group, so a wrapping toolbar keeps them together at the right
     end.className = 'toolbar-end';
     const help = this.barButton('?', () => void this.showHelp());

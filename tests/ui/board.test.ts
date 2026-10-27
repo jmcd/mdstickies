@@ -783,6 +783,8 @@ describe('review fixes', () => {
     expect(link.target).toBe('_blank');
     expect(link.rel).toContain('noopener');
     expect(link.querySelector('svg')).not.toBeNull();
+    expect(link.textContent).toBe(''); // icon only, named for screen readers
+    expect(link.getAttribute('aria-label')).toBe('mdstickies on GitHub');
   });
 });
 

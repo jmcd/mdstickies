@@ -8,7 +8,7 @@ type SystemDark = Pick<MediaQueryList, 'matches'> & {
 };
 
 const ORDER: ThemePref[] = ['auto', 'light', 'dark'];
-const LABELS: Record<ThemePref, string> = { auto: '◐ Auto', light: '☀ Light', dark: '☾ Dark' };
+const ICONS: Record<ThemePref, string> = { auto: '◐', light: '☀', dark: '☾' }; // icon only: the toolbar stays on one row
 const DESCRIPTIONS: Record<ThemePref, string> = { auto: 'Auto (follows system)', light: 'Light', dark: 'Dark' };
 
 const parse = (v: string | null): ThemePref => (ORDER.includes(v as ThemePref) ? (v as ThemePref) : 'auto');
@@ -48,7 +48,7 @@ export class ThemeControl {
 
   private set(pref: ThemePref): void {
     this.pref = pref;
-    this.el.textContent = LABELS[pref];
+    this.el.textContent = ICONS[pref];
     this.el.setAttribute('aria-label', `Theme: ${DESCRIPTIONS[pref]}. Click to change.`);
     this.el.title = `Theme: ${DESCRIPTIONS[pref]}`;
     this.apply();

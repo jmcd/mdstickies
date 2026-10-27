@@ -339,7 +339,7 @@ body {
 .toolbar button,
 .selection-bar button {
   white-space: nowrap;
-  padding: 6px 14px;
+  padding: 6px 10px;
   font: inherit;
   color: var(--text);
   background: var(--surface);
@@ -362,7 +362,7 @@ body {
 }
 
 .search {
-  width: 180px;
+  width: 140px;
   padding: 6px 10px;
   font: inherit;
   color: var(--text);
@@ -496,7 +496,7 @@ body {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-left: 16px;
+  margin-left: 8px;
 }
 
 .selection-bar[hidden] { display: none; }

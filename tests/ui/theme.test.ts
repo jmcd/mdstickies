@@ -24,7 +24,7 @@ function setup(opts: { saved?: string; dark?: boolean; storage?: Storage | null 
   const root = document.createElement('html');
   const theme = new ThemeControl(storage, media, root);
   theme.start();
-  return { theme, storage, media, root, label: () => theme.el.textContent };
+  return { theme, storage, media, root, label: () => theme.el.getAttribute('aria-label') };
 }
 
 const storageEvent = (key: string, newValue: string | null) =>
@@ -89,6 +89,7 @@ describe('ThemeControl', () => {
   it('describes the current setting for screen readers', () => {
     const { theme } = setup();
     expect(theme.el.getAttribute('aria-label')).toBe('Theme: Auto (follows system). Click to change.');
+    expect(theme.el.textContent).toBe('◐'); // icon only, to keep the toolbar on one row
   });
 
   it('index.html applies the saved theme before the app loads, using the same key', () => {

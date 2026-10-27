@@ -1,5 +1,6 @@
 import './styles.css';
 import 'highlight.js/styles/github.css';
+import { seedDemo } from './demo';
 import { StickyStore } from './store';
 import { Board } from './ui/board';
 import { showDialog } from './ui/dialog';
@@ -13,7 +14,10 @@ try {
   storage = null;
 }
 
-new Board(document.getElementById('app')!, new StickyStore(storage), {
+const store = new StickyStore(storage);
+seedDemo(storage, store);
+
+new Board(document.getElementById('app')!, store, {
   dialog: showDialog,
   download: downloadFile,
   pickFile,

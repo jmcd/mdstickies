@@ -1244,3 +1244,15 @@ describe('search', () => {
     delete (Element.prototype as Partial<Element>).scrollIntoView;
   });
 });
+
+describe('theme toggle', () => {
+  it('sits in the toolbar just before the GitHub link', () => {
+    const toggle = document.createElement('button');
+    toggle.className = 'theme-toggle';
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    new Board(root, new StickyStore(new FakeStorage()), { dialog: vi.fn(), download: vi.fn(), pickFile: vi.fn(), themeToggle: toggle }).start();
+    expect(root.querySelector('.toolbar .toolbar-end > .theme-toggle + a.repo-link')).not.toBeNull(); // wrap together, at the right
+
+  });
+});

@@ -6,6 +6,8 @@
   --danger: #c62828;
   --backdrop: rgba(0, 0, 0, 0.4);
   --board: #f3f1ec;
+  --hover: #f6f8fa;
+  color-scheme: light;
 }
 
 /* Author display rules (e.g. .sticky-colors { display: flex }) would otherwise override the hidden attribute. */
@@ -72,6 +74,43 @@
   --sticky-blue: #bfe3ff;
   --sticky-green: #c8f0c0;
   --sticky-purple: #dccbff;
+  /* Colour dots, and the top stripe on dark notes. */
+  --dot-yellow: var(--sticky-yellow);
+  --dot-pink: var(--sticky-pink);
+  --dot-blue: var(--sticky-blue);
+  --dot-green: var(--sticky-green);
+  --dot-purple: var(--sticky-purple);
+  --dot-border: rgba(0, 0, 0, 0.35);
+  --sticky-bar: rgba(0, 0, 0, 0.08);
+  --stripe-width: 0;
+  --link: #0b57d0;
+}
+
+/* Dark: ThemeControl (or index.html before first paint) sets data-theme from the toggle or the system. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #24272c;
+  --text: #e6e6e6;
+  --border: #3a3f46;
+  --accent: #6ea8fe;
+  --danger: #d9443b;
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --board: #1b1d21;
+  --hover: #2f333a;
+  --sticky-yellow: #4a4320;
+  --sticky-pink: #4d2636;
+  --sticky-blue: #1f3a52;
+  --sticky-green: #24432a;
+  --sticky-purple: #372a52;
+  --dot-yellow: #e8d45c;
+  --dot-pink: #ee86ae;
+  --dot-blue: #6fb5ee;
+  --dot-green: #7fcf86;
+  --dot-purple: #b39af5;
+  --dot-border: rgba(255, 255, 255, 0.3);
+  --sticky-bar: rgba(255, 255, 255, 0.05);
+  --stripe-width: 3px;
+  --link: #8ab4ff;
 }
 
 .sticky {
@@ -83,15 +122,18 @@
   min-height: 100px;
   color: var(--text);
   background: var(--sticky-yellow);
+  border-top: var(--stripe-width) solid var(--stripe, var(--dot-yellow));
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.sticky--yellow { background: var(--sticky-yellow); }
-.sticky--pink { background: var(--sticky-pink); }
-.sticky--blue { background: var(--sticky-blue); }
-.sticky--green { background: var(--sticky-green); }
-.sticky--purple { background: var(--sticky-purple); }
+.sticky--yellow { background: var(--sticky-yellow); --stripe: var(--dot-yellow); }
+.sticky--pink { background: var(--sticky-pink); --stripe: var(--dot-pink); }
+.sticky--blue { background: var(--sticky-blue); --stripe: var(--dot-blue); }
+.sticky--green { background: var(--sticky-green); --stripe: var(--dot-green); }
+.sticky--purple { background: var(--sticky-purple); --stripe: var(--dot-purple); }
+
+.sticky-body a { color: var(--link); }
 
 .sticky-bar {
   display: flex;
@@ -99,7 +141,7 @@
   justify-content: flex-end;
   gap: 6px;
   padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--sticky-bar);
   border-radius: 4px 4px 0 0;
   cursor: grab;
   touch-action: none;
@@ -123,7 +165,7 @@
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--dot-border);
   border-radius: 3px;
   cursor: pointer;
 }
@@ -145,11 +187,11 @@
   opacity: 1;
 }
 
-.sticky-dot--yellow { background: var(--sticky-yellow); }
-.sticky-dot--pink { background: var(--sticky-pink); }
-.sticky-dot--blue { background: var(--sticky-blue); }
-.sticky-dot--green { background: var(--sticky-green); }
-.sticky-dot--purple { background: var(--sticky-purple); }
+.sticky-dot--yellow { background: var(--dot-yellow); }
+.sticky-dot--pink { background: var(--dot-pink); }
+.sticky-dot--blue { background: var(--dot-blue); }
+.sticky-dot--green { background: var(--dot-green); }
+.sticky-dot--purple { background: var(--dot-purple); }
 
 .sticky-delete {
   padding: 0 4px;
@@ -212,7 +254,7 @@
   height: 16px;
   cursor: nwse-resize;
   touch-action: none;
-  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.35) 50%);
+  background: linear-gradient(135deg, transparent 50%, var(--dot-border) 50%);
   border-radius: 0 0 4px 0;
 }
 
@@ -226,7 +268,7 @@
 .sticky.search-miss { opacity: 0.3; }
 
 .search-hit {
-  color: inherit;
+  color: #1f2328;
   background: #ffa726;
   border-radius: 2px;
 }
@@ -285,7 +327,7 @@ body {
   cursor: pointer;
 }
 
-.toolbar button:hover { background: #f6f8fa; }
+.toolbar button:hover { background: var(--hover); }
 
 .toolbar button:focus-visible {
   outline: 2px solid var(--accent);
@@ -318,11 +360,17 @@ body {
   opacity: 0.7;
 }
 
+.toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .repo-link {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   padding: 6px 8px;
   color: var(--text);
   text-decoration: none;
@@ -346,6 +394,12 @@ body {
   color: #5c3b00;
   background: #fff4d6;
   border-bottom: 1px solid #e8c66b;
+}
+
+:root[data-theme='dark'] .banner {
+  color: #f2d38a;
+  background: #3d2f0f;
+  border-bottom-color: #6b5216;
 }
 
 .banner-dismiss {
@@ -373,6 +427,11 @@ body {
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   transform: translateX(-50%);
+}
+
+:root[data-theme='dark'] .toast {
+  background: #3a3f47;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .toast-action {
@@ -435,12 +494,12 @@ body {
 .selection-colors[hidden] { display: none; }
 
 /* .selection-bar button (0,1,1) would otherwise beat the plain dot rules. */
-.selection-bar .sticky-dot { padding: 0; border-color: rgba(0, 0, 0, 0.35); border-radius: 3px; }
-.selection-bar .sticky-dot--yellow { background: var(--sticky-yellow); }
-.selection-bar .sticky-dot--pink { background: var(--sticky-pink); }
-.selection-bar .sticky-dot--blue { background: var(--sticky-blue); }
-.selection-bar .sticky-dot--green { background: var(--sticky-green); }
-.selection-bar .sticky-dot--purple { background: var(--sticky-purple); }
+.selection-bar .sticky-dot { padding: 0; border-color: var(--dot-border); border-radius: 3px; }
+.selection-bar .sticky-dot--yellow { background: var(--dot-yellow); }
+.selection-bar .sticky-dot--pink { background: var(--dot-pink); }
+.selection-bar .sticky-dot--blue { background: var(--dot-blue); }
+.selection-bar .sticky-dot--green { background: var(--dot-green); }
+.selection-bar .sticky-dot--purple { background: var(--dot-purple); }
 
 .selection-palette {
   display: flex;

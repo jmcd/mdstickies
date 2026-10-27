@@ -12,6 +12,7 @@ export interface BoardDeps {
   dialog: typeof showDialog;
   download: typeof downloadFile;
   pickFile: typeof pickFile;
+  themeToggle?: HTMLElement;
   now?: () => Date;
 }
 
@@ -102,7 +103,11 @@ export class Board {
     repo.rel = 'noopener noreferrer';
     repo.title = 'mdstickies on GitHub';
     repo.innerHTML = `${GITHUB_ICON}<span>GitHub</span>`;
-    toolbar.append(repo);
+    const end = document.createElement('div'); // one group, so a wrapping toolbar keeps them together at the right
+    end.className = 'toolbar-end';
+    if (this.deps.themeToggle) end.append(this.deps.themeToggle);
+    end.append(repo);
+    toolbar.append(end);
 
     this.banner.className = 'banner';
     this.banner.setAttribute('role', 'alert');

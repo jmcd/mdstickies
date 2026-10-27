@@ -33,6 +33,32 @@ interface Gesture {
   group: boolean; // moving a selected note: report deltas instead of moving ourselves
 }
 
+// Wraps each match within a single text node in <mark class="search-hit">.
+function highlight(root: HTMLElement, query: string): void {
+  const needle = query.toLowerCase();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  for (const node of nodes) {
+    const text = node.data;
+    const lower = text.toLowerCase();
+    let at = lower.indexOf(needle);
+    if (at < 0) continue;
+    const frag = document.createDocumentFragment();
+    let from = 0;
+    for (; at >= 0; at = lower.indexOf(needle, from)) {
+      frag.append(text.slice(from, at));
+      const mark = document.createElement('mark');
+      mark.className = 'search-hit';
+      mark.textContent = text.slice(at, at + needle.length);
+      frag.append(mark);
+      from = at + needle.length;
+    }
+    frag.append(text.slice(from));
+    node.replaceWith(frag);
+  }
+}
+
 export class StickyView {
   readonly el: HTMLElement;
   private sticky: Sticky;
@@ -42,6 +68,7 @@ export class StickyView {
   private suppressClick = false;
   private isSelected = false;
   private renderedText: string | null = null;
+  private query = '';
   private readonly toolsEl: HTMLElement;
   private readonly swatchesEl: HTMLElement;
   private readonly paletteEl: HTMLButtonElement;
@@ -138,6 +165,16 @@ export class StickyView {
     this.el.style.top = `${this.sticky.y + dy}px`;
   }
 
+  /** Highlights case-insensitive matches of query in the rendered note; returns whether it matches.
+   *  An empty query, or a note being edited, always matches. */
+  setQuery(query: string): boolean {
+    if (query !== this.query) {
+      this.query = query;
+      if (!this.editing) this.renderBody();
+    }
+    return !query || this.editing || this.bodyEl.textContent!.toLowerCase().includes(query.toLowerCase());
+  }
+
   update(sticky: Sticky): void {
     this.sticky = sticky;
     this.apply();
@@ -198,6 +235,7 @@ export class StickyView {
   private renderBody(): void {
     this.renderedText = this.sticky.text;
     this.bodyEl.innerHTML = renderMarkdown(this.sticky.text);
+    if (this.query) highlight(this.bodyEl, this.query);
   }
 
   private onFocusOut(e: FocusEvent): void {

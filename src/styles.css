@@ -221,6 +221,16 @@
   outline-offset: 2px;
 }
 
+/* Search: notes that don't match fade back; matches get a marker (orange, so it shows on yellow notes too). */
+.sticky { transition: opacity 0.15s; }
+.sticky.search-miss { opacity: 0.3; }
+
+.search-hit {
+  color: inherit;
+  background: #ffa726;
+  border-radius: 2px;
+}
+
 .sticky-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
@@ -280,6 +290,32 @@ body {
 .toolbar button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search {
+  width: 180px;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.search-count {
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 .repo-link {

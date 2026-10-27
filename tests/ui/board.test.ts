@@ -1160,3 +1160,87 @@ describe('undo delete', () => {
     expect(store.get('a')).toBeUndefined(); // the remote write lands in its own tab's storage, not ours
   });
 });
+
+describe('search', () => {
+  const trio = () => setup({ saved: [
+    sticky({ id: 'a', text: 'buy milk' }),
+    sticky({ id: 'b', text: 'call **Mum**', x: 300 }),
+    sticky({ id: 'c', text: 'Milkshake recipe', x: 600, y: 900 }),
+  ] });
+  const box = (root: HTMLElement) => root.querySelector<HTMLInputElement>('.toolbar input.search')!;
+  const count = (root: HTMLElement) => root.querySelector<HTMLElement>('.search-count')!;
+  const search = (root: HTMLElement, q: string) => {
+    box(root).value = q;
+    box(root).dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const dimmed = (root: HTMLElement) => views(root).filter((v) => v.classList.contains('search-miss')).map((v) => v.dataset.id);
+  const key = (target: EventTarget, k: string, extra: KeyboardEventInit = {}) => {
+    const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...extra });
+    target.dispatchEvent(e);
+    return e;
+  };
+
+  it('typing dims the notes that do not match and counts the matches', () => {
+    const { root } = trio();
+    search(root, 'milk');
+    expect(dimmed(root)).toEqual(['b']);
+    expect(count(root).textContent).toBe('2 of 3');
+    expect(viewOf(root, 'c').querySelector('mark.search-hit')!.textContent).toBe('Milk');
+  });
+
+  it('an empty or blank query dims nothing and hides the count', () => {
+    const { root } = trio();
+    search(root, 'milk');
+    search(root, '  ');
+    expect(dimmed(root)).toEqual([]);
+    expect(count(root).hidden).toBe(true);
+    expect(root.querySelector('mark.search-hit')).toBeNull();
+  });
+
+  it('Escape in the box clears the search', () => {
+    const { root } = trio();
+    search(root, 'mum');
+    key(box(root), 'Escape');
+    expect(box(root).value).toBe('');
+    expect(dimmed(root)).toEqual([]);
+  });
+
+  it('Ctrl+F focuses the box instead of the browser find, even mid-edit', () => {
+    const { root, board } = trio();
+    board.newSticky();
+    const e = key(document.activeElement!, 'f', { ctrlKey: true, metaKey: true });
+    expect(e.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(box(root));
+  });
+
+  it('a note whose text changes is re-checked against the search', () => {
+    const { root, board } = trio();
+    search(root, 'milk');
+    board.applyRemote({ kind: 'upsert', sticky: sticky({ id: 'b', text: 'oat milk', x: 300, updatedAt: '2026-10-26T00:00:00.000Z' }) });
+    expect(dimmed(root)).toEqual([]);
+    expect(count(root).textContent).toBe('3 of 3');
+  });
+
+  it('a new note being typed into is not dimmed', () => {
+    const { root, board } = trio();
+    search(root, 'milk');
+    const s = board.newSticky();
+    expect(dimmed(root)).toEqual(['b']);
+    expect(count(root).textContent).toBe('3 of 4');
+    type(root, s.id, 'eggs');
+    endEdit(root, s.id);
+    vi.advanceTimersByTime(300);
+    expect(dimmed(root).sort()).toEqual(['b', s.id].sort());
+  });
+
+  it('scrolls the first match (top, then left) into view', () => {
+    const { root } = trio();
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+    search(root, 'milk');
+    expect(spy.mock.contexts[0]).toBe(viewOf(root, 'a'));
+    search(root, 'shake');
+    expect(spy.mock.contexts.at(-1)).toBe(viewOf(root, 'c'));
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+});

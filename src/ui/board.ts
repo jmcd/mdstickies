@@ -46,6 +46,9 @@ export class Board {
   private readonly boardEl = document.createElement('div');
   private readonly banner = document.createElement('div');
   private readonly toast = new Toast(UNDO_MS);
+  private readonly searchBox = document.createElement('input');
+  private readonly searchCount = document.createElement('span');
+  private query = '';
   private readonly now: () => Date;
 
   constructor(
@@ -72,6 +75,7 @@ export class Board {
       b.addEventListener('click', run);
       toolbar.append(b);
     }
+    toolbar.append(this.searchControl());
 
     this.selectionBar.className = 'selection-bar';
     this.selectionBar.hidden = true;
@@ -249,6 +253,51 @@ export class Board {
     if (this.selected.size === 0) this.setColourOpen(false);
   }
 
+  // --- search ---
+
+  private searchControl(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'search-wrap';
+    const box = this.searchBox;
+    box.type = 'search';
+    box.className = 'search';
+    box.placeholder = 'Search notes';
+    box.setAttribute('aria-label', 'Search notes');
+    box.addEventListener('input', () => this.setQuery(box.value));
+    box.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (box.value === '') box.blur();
+      box.value = '';
+      this.setQuery('');
+    });
+    this.searchCount.className = 'search-count';
+    this.searchCount.setAttribute('aria-live', 'polite');
+    this.searchCount.hidden = true;
+    wrap.append(box, this.searchCount);
+    return wrap;
+  }
+
+  private setQuery(raw: string): void {
+    this.query = raw.trim();
+    const first = this.applySearch()
+      .sort((a, b) => a.y - b.y || a.x - b.x)[0];
+    if (this.query && first) this.views.get(first.id)!.el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+
+  // Dims every note that doesn't match the query; returns the ones that do.
+  private applySearch(): Sticky[] {
+    const hits: Sticky[] = [];
+    for (const [id, view] of this.views) {
+      const hit = view.setQuery(this.query);
+      view.el.classList.toggle('search-miss', !hit);
+      if (hit) hits.push(this.notes.get(id)!);
+    }
+    this.searchCount.hidden = !this.query;
+    this.searchCount.textContent = `${hits.length} of ${this.views.size}`;
+    return hits;
+  }
+
   private barButton(label: string, run: () => void): HTMLButtonElement {
     const b = document.createElement('button');
     b.type = 'button';
@@ -362,7 +411,14 @@ export class Board {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (e.defaultPrevented || this.dialogs > 0 || this.editingId !== null) return;
+    if (e.defaultPrevented || this.dialogs > 0) return;
+    if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      this.searchBox.focus();
+      this.searchBox.select();
+      return;
+    }
+    if (this.editingId !== null) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
     if (this.groupDrag) { // a drag in progress owns the selection: Esc cancels it, select-all/delete wait
@@ -397,6 +453,7 @@ export class Board {
     const next = touch(cur, changes, this.now());
     this.notes.set(id, next);
     this.views.get(id)!.update(next);
+    this.applySearch();
     this.resize();
     if (!debounce) return this.saveNow(next);
     this.cancelPending(id);
@@ -413,6 +470,7 @@ export class Board {
 
   private endEdit(id: string): void {
     if (this.editingId === id) this.editingId = null;
+    this.applySearch();
     const local = this.notes.get(id);
     if (!local) return;
     // Compare before flushing: writing our older pending text first would overwrite the newer stored note.
@@ -482,7 +540,11 @@ export class Board {
   private upsertView(s: Sticky): void {
     this.notes.set(s.id, s);
     const existing = this.views.get(s.id);
-    if (existing) return existing.update(s);
+    if (existing) {
+      existing.update(s);
+      this.applySearch();
+      return;
+    }
     const view = new StickyView(s, {
       onChange: (id, changes, { debounce }) => {
         if ('x' in changes && this.selected.size > 0 && !this.selected.has(id)) this.setSelection([]); // dragging an unselected note drops the selection
@@ -490,7 +552,7 @@ export class Board {
       },
       onGroupMove: (id, dx, dy, phase) => this.groupMove(id, dx, dy, phase),
       onActivate: (id) => this.activate(id),
-      onEditStart: (id) => { this.editingId = id; this.setSelection([]); },
+      onEditStart: (id) => { this.editingId = id; this.setSelection([]); this.applySearch(); },
       onToggleSelect: (id) => this.toggleSelect(id),
       onPlainClick: (id) => { this.activate(id); this.setSelection([]); },
       onEditEnd: (id) => this.endEdit(id),
@@ -498,6 +560,7 @@ export class Board {
     });
     this.views.set(s.id, view);
     this.boardEl.append(view.el);
+    this.applySearch();
   }
 
   private removeLocal(id: string): void {
@@ -510,6 +573,7 @@ export class Board {
     this.views.get(id)?.el.remove();
     this.views.delete(id);
     this.notes.delete(id);
+    this.applySearch();
     if (this.selected.delete(id)) this.setSelection([...this.selected]);
   }
 

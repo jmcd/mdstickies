@@ -611,3 +611,43 @@ describe('selection', () => {
     expect(css).toMatch(/\.sticky\.selected\s*\{[^}]*outline/);
   });
 });
+
+describe('StickyView search', () => {
+  const marks = (v: StickyView) => [...v.el.querySelectorAll('mark.search-hit')].map((m) => m.textContent);
+
+  it('setQuery highlights every case-insensitive match in the rendered text and reports a match', () => {
+    const { view } = make({ text: 'Milk and more milk' });
+    expect(view.setQuery('MILK')).toBe(true);
+    expect(marks(view)).toEqual(['Milk', 'milk']);
+    expect(body(view).querySelector('p')!.textContent).toBe('Milk and more milk');
+  });
+
+  it('matches the words shown, not the Markdown syntax', () => {
+    const { view } = make({ text: '**bold** text' });
+    expect(view.setQuery('bold')).toBe(true);
+    expect(marks(view)).toEqual(['bold']);
+    expect(view.setQuery('**')).toBe(false);
+    expect(marks(view)).toEqual([]);
+  });
+
+  it('an empty query clears the highlights and matches everything', () => {
+    const { view } = make({ text: 'milk' });
+    view.setQuery('milk');
+    expect(view.setQuery('')).toBe(true);
+    expect(marks(view)).toEqual([]);
+  });
+
+  it('keeps highlighting after the text changes', () => {
+    const { view, sticky } = make({ text: 'eggs' });
+    view.setQuery('milk');
+    view.update({ ...sticky, text: 'milk' });
+    expect(marks(view)).toEqual(['milk']);
+  });
+
+  it('a note being edited always matches and its textarea is left alone', () => {
+    const { view } = make({ text: 'eggs' });
+    view.edit();
+    expect(view.setQuery('milk')).toBe(true);
+    expect(area(view).value).toBe('eggs');
+  });
+});

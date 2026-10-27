@@ -4,6 +4,15 @@ A static sticky-notes app: write notes in Markdown, arrange them on a board. Bui
 
 Use it at <https://mdstickies.com>.
 
+## How it's built
+
+mdstickies is a single static page with no backend and no UI framework, just TypeScript and the DOM.
+
+- **Vite** bundles the app, and **Vitest** with jsdom runs the tests.
+- **marked** turns each note's Markdown (GitHub-flavoured, with task lists) into HTML, **highlight.js** colours fenced code, and **DOMPurify** sanitises the result before it goes on the page.
+- Notes are saved as JSON in **local storage**, one key per note. Other open tabs pick up changes through the browser's `storage` event, so the board stays in sync across tabs.
+- A **GitHub Actions** workflow tests and builds every push to `main` and deploys the `dist` folder to **GitHub Pages**.
+
 ## Development
 
 ```sh

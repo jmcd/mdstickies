@@ -39,6 +39,8 @@ const viewOf = (root: HTMLElement, id: string) => root.querySelector<HTMLElement
 const button = (root: HTMLElement, label: string) =>
   [...root.querySelectorAll<HTMLButtonElement>('.toolbar button')].find((b) => b.textContent === label)!;
 const banners = (root: HTMLElement) => root.querySelectorAll('.banner');
+const toast = (root: HTMLElement) => root.querySelector<HTMLElement>('.toast')!;
+const undo = (root: HTMLElement) => toast(root).querySelector<HTMLButtonElement>('.toast-action')!.click();
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
 function type(root: HTMLElement, id: string, text: string) {
@@ -133,31 +135,29 @@ describe('Board', () => {
     expect(viewOf(root, 'a').style.zIndex).toBe('6');
   });
 
-  it('deleting an empty note skips the dialog; non-empty asks, Cancel keeps it', async () => {
-    const { store, root, deps } = setup({
-      saved: [sticky({ id: 'empty', text: '  \n ' }), sticky({ id: 'full', text: 'keep me' })],
-      answers: ['cancel', 'delete'],
-    });
-    viewOf(root, 'empty').querySelector<HTMLElement>('.sticky-delete')!.click();
+  it('deleting a note removes it at once without asking; Undo puts it back', async () => {
+    const saved = sticky({ id: 'full', text: 'keep me', x: 40, y: 60, color: 'pink', z: 3 });
+    const { store, root, deps } = setup({ saved: [saved] });
+    viewOf(root, 'full').querySelector<HTMLElement>('.sticky-delete')!.click();
     await settle();
     expect(deps.dialog).not.toHaveBeenCalled();
-    expect(viewOf(root, 'empty')).toBeNull();
-    expect(store.get('empty')).toBeUndefined();
-
-    viewOf(root, 'full').querySelector<HTMLElement>('.sticky-delete')!.click();
-    await settle();
-    expect(deps.dialog).toHaveBeenCalledWith({
-      message: 'Delete this note?',
-      buttons: [{ id: 'delete', label: 'Delete', danger: true }, { id: 'cancel', label: 'Cancel' }],
-      cancelId: 'cancel',
-    });
-    expect(viewOf(root, 'full')).not.toBeNull();
-    expect(store.get('full')).toBeDefined();
-
-    viewOf(root, 'full').querySelector<HTMLElement>('.sticky-delete')!.click();
-    await settle();
     expect(viewOf(root, 'full')).toBeNull();
     expect(store.get('full')).toBeUndefined();
+    expect(toast(root).hidden).toBe(false);
+    expect(toast(root).textContent).toContain('Note deleted');
+
+    undo(root);
+    expect(viewOf(root, 'full')).not.toBeNull();
+    expect(store.get('full')).toEqual(saved);
+    expect(toast(root).hidden).toBe(true);
+  });
+
+  it('deleting an empty note offers no undo', () => {
+    const { store, root } = setup({ saved: [sticky({ id: 'empty', text: '  \n ' })] });
+    viewOf(root, 'empty').querySelector<HTMLElement>('.sticky-delete')!.click();
+    expect(viewOf(root, 'empty')).toBeNull();
+    expect(store.get('empty')).toBeUndefined();
+    expect(toast(root).hidden).toBe(true);
   });
 
   it('Clear board: Cancel keeps all, Clear removes all from DOM and storage', async () => {
@@ -168,7 +168,7 @@ describe('Board', () => {
     button(root, 'Clear board').click();
     await settle();
     expect(deps.dialog).toHaveBeenCalledWith({
-      message: "Delete all 2 notes? This can't be undone.",
+      message: 'Delete all 2 notes?',
       buttons: [{ id: 'clear', label: 'Clear board', danger: true }, { id: 'cancel', label: 'Cancel' }],
       cancelId: 'cancel',
     });
@@ -179,6 +179,11 @@ describe('Board', () => {
     expect(views(root)).toHaveLength(0);
     expect(board.stickies()).toEqual([]);
     expect(store.loadAll()).toEqual([]);
+    expect(toast(root).textContent).toContain('Board cleared');
+
+    undo(root);
+    expect(views(root)).toHaveLength(2);
+    expect(store.loadAll().map((s) => s.id).sort()).toEqual(['a', 'b']);
   });
 
   it('Export downloads mdstickies-YYYY-MM-DD.json with serialized board', () => {
@@ -410,7 +415,7 @@ describe('Board', () => {
     };
     const pump = () => { while (queue.length) queue.shift()!(); };
 
-    const a = setup({ storage: tab(0), answers: ['delete'] });
+    const a = setup({ storage: tab(0) });
     const b = setup({ storage: tab(1) });
     boards.push(a.board, b.board);
     const same = () => {
@@ -999,51 +1004,35 @@ describe('bulk delete', () => {
     [...selectionBar(root).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Delete')!.click();
   const ids = (root: HTMLElement) => views(root).map((v) => v.dataset.id).sort();
 
-  it('Delete asks once for the whole selection, then removes them everywhere', async () => {
-    const { root, store, deps } = four(['delete']);
+  it('Delete removes the whole selection everywhere without asking; one Undo restores them all', () => {
+    const { root, store, deps, board } = four();
     pick(root, 'a', 'b', 'c');
     del(root);
-    await Promise.resolve();
-    expect(deps.dialog).toHaveBeenCalledTimes(1);
-    expect(deps.dialog).toHaveBeenCalledWith(expect.objectContaining({ message: "Delete 3 notes? This can't be undone." }));
-    await Promise.resolve();
+    expect(deps.dialog).not.toHaveBeenCalled();
     expect(ids(root)).toEqual(['d']);
     expect(store.get('a')).toBeUndefined();
     expect(store.get('b')).toBeUndefined();
     expect(store.get('c')).toBeUndefined();
     expect(store.get('d')).toBeDefined();
-  });
+    expect(board.selectedIds()).toEqual([]);
+    expect(toast(root).textContent).toContain('3 notes deleted');
 
-  it('cancelling bulk delete keeps everything', async () => {
-    const { root, store, board } = four(['cancel']);
-    pick(root, 'a', 'b');
-    del(root);
-    await Promise.resolve();
-    await Promise.resolve();
+    undo(root);
     expect(ids(root)).toEqual(['a', 'b', 'c', 'd']);
-    expect(store.get('a')).toBeDefined();
-    expect(board.selectedIds().sort()).toEqual(['a', 'b']);
+    expect(store.loadAll()).toHaveLength(4);
   });
 
-  it('a selection of empty notes deletes without asking', async () => {
-    const { root, store, deps } = four([], [{ text: '' }, { text: '  ' }]);
+  it('a selection of only empty notes deletes with no undo offer', () => {
+    const { root, store } = four([], [{ text: '' }, { text: '  ' }]);
     pick(root, 'a', 'b');
     del(root);
-    await Promise.resolve();
-    expect(deps.dialog).not.toHaveBeenCalled();
     expect(ids(root)).toEqual(['c', 'd']);
     expect(store.get('a')).toBeUndefined();
-  });
-
-  it('a single note asks "Delete this note?"', async () => {
-    const { root, deps } = four(['cancel']);
-    pick(root, 'a');
-    del(root);
-    expect(deps.dialog).toHaveBeenCalledWith(expect.objectContaining({ message: 'Delete this note?' }));
+    expect(toast(root).hidden).toBe(true);
   });
 
   it('Backspace and Delete delete the selection when not editing, and do nothing in a textarea', async () => {
-    const { root, board, deps } = four(['delete', 'delete']);
+    const { root, board, deps } = four();
     pick(root, 'a', 'b');
     const ta = document.createElement('textarea');
     root.append(ta);
@@ -1053,13 +1042,9 @@ describe('bulk delete', () => {
     expect(board.selectedIds().sort()).toEqual(['a', 'b']);
     const e = key(document.body, 'Backspace');
     expect(e.defaultPrevented).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
     expect(ids(root)).toEqual(['c', 'd']);
     pick(root, 'c');
     key(document.body, 'Delete');
-    await Promise.resolve();
-    await Promise.resolve();
     expect(ids(root)).toEqual(['d']);
   });
 
@@ -1071,40 +1056,107 @@ describe('bulk delete', () => {
     expect(ids(root)).toHaveLength(4);
   });
 
-  it('shortcuts are ignored while a dialog is pending', () => {
+  it('shortcuts are ignored while a dialog is pending', async () => {
     const { root, board, deps } = setup({
       saved: ['a', 'b'].map((id) => sticky({ id })),
+      file: 'not json',
       dialog: () => new Promise<string>(() => {}),
     });
     pick(root, 'a');
+    void board.importBoard(); // any dialog will do; this one never answers
+    await settle();
     key(document.body, 'Delete');
     key(document.body, 'Escape');
     key(document.body, 'a', { ctrlKey: true });
     expect(deps.dialog).toHaveBeenCalledTimes(1);
     expect(board.selectedIds()).toEqual(['a']);
+    expect(ids(root)).toEqual(['a', 'b']);
   });
 
-  it('notes removed by another tab while the dialog is up are skipped', async () => {
-    const { root, board, store } = four(['delete']);
-    pick(root, 'a', 'b', 'c');
-    let release!: (v: string) => void;
-    (board as unknown as { deps: BoardDeps }).deps.dialog = () => new Promise<string>((r) => { release = r; });
-    del(root);
-    board.applyRemote({ kind: 'remove', id: 'b' });
-    release('delete');
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(ids(root)).toEqual(['d']);
-    expect(store.get('a')).toBeUndefined();
-    expect(store.get('c')).toBeUndefined();
+});
+
+describe('undo delete', () => {
+  const three = () => setup({ saved: ['a', 'b', 'c'].map((id, i) => sticky({ id, x: i * 250 })) });
+  const remove = (root: HTMLElement, id: string) => viewOf(root, id).querySelector<HTMLElement>('.sticky-delete')!.click();
+  const ids = (root: HTMLElement) => views(root).map((v) => v.dataset.id).sort();
+
+  it('the offer lapses after 10 seconds', () => {
+    const { root } = three();
+    remove(root, 'a');
+    vi.advanceTimersByTime(9_999);
+    expect(toast(root).hidden).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(toast(root).hidden).toBe(true);
+    expect(key(document.body, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(ids(root)).toEqual(['b', 'c']);
   });
 
-  it('Ctrl+A then Delete still asks before clearing the board', async () => {
-    const { root, deps, store } = four(['cancel']);
+  it('the timer waits while the pointer is over the toast', () => {
+    const { root } = three();
+    remove(root, 'a');
+    toast(root).dispatchEvent(new Event('pointerenter'));
+    vi.advanceTimersByTime(60_000);
+    expect(toast(root).hidden).toBe(false);
+    toast(root).dispatchEvent(new Event('pointerleave'));
+    vi.advanceTimersByTime(10_000);
+    expect(toast(root).hidden).toBe(true);
+  });
+
+  it('Ctrl+Z (Cmd+Z on Mac) undoes the last delete while the toast is up', () => {
+    const { root, store } = three();
+    remove(root, 'a');
+    const e = key(document.body, 'z', { ctrlKey: true });
+    expect(e.defaultPrevented).toBe(true);
+    expect(ids(root)).toEqual(['a', 'b', 'c']);
+    expect(store.get('a')).toBeDefined();
+    expect(toast(root).hidden).toBe(true); // used up: a second Ctrl+Z does nothing
+    expect(key(document.body, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
+  });
+
+  it('Ctrl+Z in a textarea is left to the textarea', () => {
+    const { root } = three();
+    remove(root, 'a');
+    const ta = document.createElement('textarea');
+    root.append(ta);
+    expect(key(ta, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(ids(root)).toEqual(['b', 'c']);
+  });
+
+  it('a newer delete replaces the offer: Undo restores only the latest', () => {
+    const { root } = three();
+    remove(root, 'a');
+    remove(root, 'b');
+    undo(root);
+    expect(ids(root)).toEqual(['b', 'c']);
+  });
+
+  it('Ctrl+A then Delete clears everything at once, and Undo brings it all back', () => {
+    const { root, store } = three();
     key(document.body, 'a', { ctrlKey: true });
     key(document.body, 'Delete');
-    expect(deps.dialog).toHaveBeenCalledTimes(1);
-    expect(ids(root)).toHaveLength(4);
-    expect(store.get('a')).toBeDefined();
+    expect(ids(root)).toEqual([]);
+    undo(root);
+    expect(ids(root)).toEqual(['a', 'b', 'c']);
+    expect(store.loadAll()).toHaveLength(3);
+  });
+
+  it('a note edited before its delete comes back with its latest text, even if the save was still pending', () => {
+    const { root, store, board } = setup();
+    const s = board.newSticky();
+    type(root, s.id, 'unsaved words');
+    remove(root, s.id);
+    undo(root);
+    expect(store.get(s.id)!.text).toBe('unsaved words');
+    expect(viewOf(root, s.id).querySelector('.sticky-body')!.textContent).toContain('unsaved words');
+  });
+
+  it('a note that is already back (another tab undid it) is left alone', () => {
+    const { root, board, store } = three();
+    remove(root, 'a');
+    const newer = sticky({ id: 'a', text: 'edited elsewhere', updatedAt: '2026-10-26T00:00:00.000Z' });
+    board.applyRemote({ kind: 'upsert', sticky: newer });
+    undo(root);
+    expect(board.stickies().find((s) => s.id === 'a')!.text).toBe('edited elsewhere');
+    expect(store.get('a')).toBeUndefined(); // the remote write lands in its own tab's storage, not ours
   });
 });

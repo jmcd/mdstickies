@@ -6,6 +6,7 @@ import type { showDialog } from './dialog';
 import type { downloadFile, pickFile } from './files';
 import { IS_MAC, isPrimaryShortcut, isSelectModifier } from './keys';
 import { PALETTE_ICON, StickyView } from './stickyView';
+import { Toast } from './toast';
 
 export interface BoardDeps {
   dialog: typeof showDialog;
@@ -17,6 +18,7 @@ export interface BoardDeps {
 const TEXT_DEBOUNCE_MS = 300;
 const BOARD_MARGIN = 200;
 const DRAG_THRESHOLD = 4;
+const UNDO_MS = 10_000;
 const REPO_URL = 'https://github.com/jmcd/mdstickies';
 const GITHUB_ICON =
   '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
@@ -43,6 +45,7 @@ export class Board {
   private box: { x: number; y: number; base: Set<string>; el: HTMLElement | null } | null = null;
   private readonly boardEl = document.createElement('div');
   private readonly banner = document.createElement('div');
+  private readonly toast = new Toast(UNDO_MS);
   private readonly now: () => Date;
 
   constructor(
@@ -84,7 +87,7 @@ export class Board {
     ];
     for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
     this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
-    this.selectionBar.append(this.barButton('Delete', () => void this.deleteSelected()));
+    this.selectionBar.append(this.barButton('Delete', () => this.deleteNotes(this.selectedIds())));
     this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
     toolbar.append(this.selectionBar);
 
@@ -110,7 +113,7 @@ export class Board {
     this.banner.append(msg, dismiss);
 
     this.boardEl.className = 'board';
-    this.root.replaceChildren(toolbar, this.boardEl);
+    this.root.replaceChildren(toolbar, this.boardEl, this.toast.el);
 
     // A press on empty board must not start a text selection; blurEdit() ends edits explicitly.
     this.boardEl.addEventListener('mousedown', (e) => { if (e.target === this.boardEl) e.preventDefault(); });
@@ -189,13 +192,15 @@ export class Board {
   async clearBoard(): Promise<void> {
     if (this.notes.size === 0) return;
     const answer = await this.ask({
-      message: `Delete all ${this.notes.size} notes? This can't be undone.`,
+      message: `Delete all ${this.notes.size} notes?`,
       buttons: [{ id: 'clear', label: 'Clear board', danger: true }, { id: 'cancel', label: 'Cancel' }],
       cancelId: 'cancel',
     });
     if (answer !== 'clear') return;
+    const gone = this.stickies();
     this.clearEverywhere();
     this.resize();
+    this.offerUndo(gone, 'Board cleared');
   }
 
   applyRemote(change: RemoteChange): void {
@@ -372,7 +377,10 @@ export class Board {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected.size > 0) {
       e.preventDefault(); // Backspace can navigate back in some browsers
-      void this.deleteSelected();
+      this.deleteNotes(this.selectedIds());
+    } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && this.toast.open) {
+      e.preventDefault();
+      this.toast.run();
     } else if (isPrimaryShortcut(e) && !e.shiftKey && !e.altKey && !(IS_MAC && e.ctrlKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
       this.setSelection(this.notes.keys());
@@ -443,39 +451,28 @@ export class Board {
     for (const i of drag.ids) this.views.get(i)?.preview(0, 0);
   }
 
-  private async requestDelete(id: string): Promise<void> {
-    const s = this.notes.get(id);
-    if (!s) return;
-    if (s.text.trim() !== '') {
-      const answer = await this.ask({
-        message: 'Delete this note?',
-        buttons: [{ id: 'delete', label: 'Delete', danger: true }, { id: 'cancel', label: 'Cancel' }],
-        cancelId: 'cancel',
-      });
-      if (answer !== 'delete' || !this.notes.has(id)) return;
+  // Deletes at once; the toast's Undo (or Ctrl/Cmd+Z) puts them back. Empty notes go without an offer.
+  private deleteNotes(ids: string[]): void {
+    const gone = ids.map((id) => this.notes.get(id)).filter((s): s is Sticky => !!s);
+    if (gone.length === 0) return;
+    for (const s of gone) {
+      this.removeLocal(s.id);
+      this.store.remove(s.id);
     }
-    this.removeLocal(id);
-    this.store.remove(id);
     this.resize();
+    this.offerUndo(gone, gone.length === 1 ? 'Note deleted' : `${gone.length} notes deleted`);
   }
 
-  private async deleteSelected(): Promise<void> {
-    const sel = this.selectedStickies();
-    const n = sel.length;
-    if (n === 0) return;
-    const ids = sel.map((s) => s.id);
-    if (sel.some((s) => s.text.trim() !== '')) {
-      const answer = await this.ask({
-        message: n === 1 ? 'Delete this note?' : `Delete ${n} notes? This can't be undone.`,
-        buttons: [{ id: 'delete', label: 'Delete', danger: true }, { id: 'cancel', label: 'Cancel' }],
-        cancelId: 'cancel',
-      });
-      if (answer !== 'delete') return;
-    }
-    for (const id of ids) {
-      if (!this.notes.has(id)) continue; // removed elsewhere while the dialog was up
-      this.removeLocal(id);
-      this.store.remove(id);
+  private offerUndo(gone: Sticky[], message: string): void {
+    if (gone.some((s) => s.text.trim() !== '')) this.toast.show(message, 'Undo', () => this.restore(gone));
+  }
+
+  // Puts deleted notes back as they were; a note already back (e.g. restored in another tab) is left alone.
+  private restore(gone: Sticky[]): void {
+    for (const s of gone) {
+      if (this.notes.has(s.id)) continue;
+      this.upsertView(s);
+      this.save(s);
     }
     this.resize();
   }
@@ -497,7 +494,7 @@ export class Board {
       onToggleSelect: (id) => this.toggleSelect(id),
       onPlainClick: (id) => { this.activate(id); this.setSelection([]); },
       onEditEnd: (id) => this.endEdit(id),
-      onDeleteRequest: (id) => void this.requestDelete(id),
+      onDeleteRequest: (id) => this.deleteNotes([id]),
     });
     this.views.set(s.id, view);
     this.boardEl.append(view.el);

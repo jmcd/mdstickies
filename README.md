@@ -15,7 +15,11 @@ npm run build
 
 ## Selecting several notes
 
-Drag a box on empty board, Shift-click or Ctrl/Cmd-click notes, or press Ctrl/Cmd+A. The toolbar then shows actions for the selection: arrange, align, colour, export and delete. Delete or Backspace deletes the selected notes after one confirmation. Esc clears the selection.
+Drag a box on empty board, Shift-click or Ctrl/Cmd-click notes, or press Ctrl/Cmd+A. The toolbar then shows actions for the selection: arrange, align, colour, export and delete. Delete or Backspace deletes the selected notes. Esc clears the selection.
+
+## Undoing a delete
+
+Deleting notes or clearing the board shows an Undo button for 10 seconds. Ctrl+Z (Cmd+Z on Mac) does the same while it's showing.
 
 ## Your data
 

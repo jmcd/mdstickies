@@ -765,6 +765,15 @@ describe('review fixes', () => {
     expect(css).toMatch(/\.toolbar\s*\{[^}]*flex-wrap:\s*wrap/);
     expect(css).toMatch(/\.selection-bar button\s*\{[^}]*white-space:\s*nowrap/);
   });
+
+  it('the toolbar links to the repo in a new tab', () => {
+    const { root } = setup();
+    const link = root.querySelector<HTMLAnchorElement>('.toolbar a.repo-link')!;
+    expect(link.href).toBe('https://github.com/jmcd/mdstickies');
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noopener');
+    expect(link.querySelector('svg')).not.toBeNull();
+  });
 });
 
 describe('group move', () => {

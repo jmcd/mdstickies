@@ -53,3 +53,17 @@ export async function writeClipboard(data: Record<string, string>): Promise<void
   const blobs = Object.fromEntries(Object.entries(data).map(([type, v]) => [type, new Blob([v], { type })]));
   await navigator.clipboard.write([new ClipboardItem(blobs)]);
 }
+
+/** What a paste carries: the rich copy (where copied notes hide) and the plain text. */
+export interface ClipboardContents {
+  html: string;
+  text: string;
+}
+
+// Reading needs the browser's permission (it may ask); Ctrl/Cmd+V doesn't, so it uses the paste event instead.
+export async function readClipboard(): Promise<ClipboardContents> {
+  const read = async (item: ClipboardItem, type: string) => (item.types.includes(type) ? (await item.getType(type)).text() : '');
+  if (!navigator.clipboard.read) return { html: '', text: await navigator.clipboard.readText() };
+  const [item] = await navigator.clipboard.read();
+  return item ? { html: await read(item, 'text/html'), text: await read(item, 'text/plain') } : { html: '', text: '' };
+}

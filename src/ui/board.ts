@@ -1,4 +1,4 @@
-import { clipboardData, notesFromClipboard, writeClipboard, type CopyKind } from '../clipboard';
+import { clipboardData, notesFromClipboard, readClipboard, writeClipboard, type ClipboardContents, type CopyKind } from '../clipboard';
 import { alignLeft, alignTop, cascade, clampDelta, grid, normalizeRect, sameSize, toFront, touches, type Layout } from '../arrange';
 import { COLORS, createSticky, touch, DEFAULT_SIZE, type Sticky } from '../model';
 import { exportFileName, ImportError, parseBoardFile, prepareAdd, serializeBoard } from '../format';
@@ -6,6 +6,7 @@ import { parseStorageEvent, resolveRemote, StorageFailure, type RemoteChange, ty
 import type { showDialog } from './dialog';
 import type { downloadFile, pickFile } from './files';
 import { IS_MAC, isPrimaryShortcut, isSelectModifier } from './keys';
+import { closeMenus, Menu } from './menu';
 import { PALETTE_ICON, StickyView } from './stickyView';
 import { Toast } from './toast';
 
@@ -15,6 +16,7 @@ export interface BoardDeps {
   pickFile: typeof pickFile;
   themeToggle?: HTMLElement;
   writeClipboard?: (data: Record<string, string>) => Promise<void>;
+  readClipboard?: () => Promise<ClipboardContents>;
   now?: () => Date;
 }
 
@@ -87,42 +89,45 @@ export class Board {
   start(): void {
     const toolbar = document.createElement('div');
     toolbar.className = 'toolbar';
-    const tools: Array<[string, () => void]> = [
-      ['New', () => this.newSticky()],
-      ['Export', () => this.exportBoard()],
-      ['Import', () => void this.importBoard()],
-      ['Clear board', () => void this.clearBoard()],
-    ];
-    for (const [label, run] of tools) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      b.addEventListener('click', run);
-      toolbar.append(b);
-    }
-    toolbar.append(this.searchControl());
+    toolbar.append(
+      this.barButton('New', () => this.newSticky()),
+      this.barButton('Paste', () => void this.pasteFromClipboard()),
+      new Menu('Board', [
+        ['Export', () => this.exportBoard()],
+        ['Import', () => void this.importBoard()],
+        ['Clear board', () => void this.clearBoard()],
+      ]).el,
+      this.searchControl(),
+    );
 
     this.selectionBar.className = 'selection-bar';
     this.selectionBar.hidden = true;
     this.selectionCount.className = 'selection-count';
     this.selectionBar.append(this.selectionCount);
-    const actions: Array<[string, () => void]> = [
-      ['Cascade', () => this.applyLayout(cascade(this.selectedStickies(), this.maxZ()))],
-      ['Grid', () => this.applyLayout(grid(this.selectedStickies()))],
-      ['Align left', () => this.applyLayout(alignLeft(this.selectedStickies()))],
-      ['Align top', () => this.applyLayout(alignTop(this.selectedStickies()))],
-      ['Same size', () => this.applyLayout(sameSize(this.selectedStickies()))],
-      ['Front', () => this.applyLayout(toFront(this.selectedStickies(), this.maxZ()))],
-    ];
-    for (const [label, run] of actions) this.selectionBar.append(this.barButton(label, run));
+    // Grouped into menus so selecting notes doesn't wrap the toolbar onto more rows and push the board down.
+    const deselect = this.barButton('✕', () => this.setSelection([]));
+    deselect.setAttribute('aria-label', 'Deselect');
+    deselect.title = 'Deselect';
     this.selectionBar.append(
-      this.barButton('Copy', () => void this.copySelected('notes')),
-      this.barButton('Copy text', () => void this.copySelected('text')),
-      this.barButton('Copy Markdown', () => void this.copySelected('markdown')),
+      new Menu('Arrange', [
+        ['Cascade', () => this.applyLayout(cascade(this.selectedStickies(), this.maxZ()))],
+        ['Grid', () => this.applyLayout(grid(this.selectedStickies()))],
+        ['Align left', () => this.applyLayout(alignLeft(this.selectedStickies()))],
+        ['Align top', () => this.applyLayout(alignTop(this.selectedStickies()))],
+        ['Same size', () => this.applyLayout(sameSize(this.selectedStickies()))],
+        ['Front', () => this.applyLayout(toFront(this.selectedStickies(), this.maxZ()))],
+      ]).el,
+      new Menu('Copy', [
+        ['Copy', () => void this.copySelected('notes')],
+        ['Copy text', () => void this.copySelected('text')],
+        ['Copy Markdown', () => void this.copySelected('markdown')],
+        'divider',
+        ['Export selected', () => this.exportSelected()],
+      ]).el,
+      this.colourControl(),
+      this.barButton('Delete', () => this.deleteNotes(this.selectedIds())),
+      deselect,
     );
-    this.selectionBar.append(this.colourControl(), this.barButton('Export selected', () => this.exportSelected()));
-    this.selectionBar.append(this.barButton('Delete', () => this.deleteNotes(this.selectedIds())));
-    this.selectionBar.append(this.barButton('Deselect', () => this.setSelection([])));
     toolbar.append(this.selectionBar);
 
     const repo = document.createElement('a');
@@ -216,20 +221,37 @@ export class Board {
   private onPaste(e: ClipboardEvent): void {
     if (!this.clipboardIsOurs(e)) return;
     const at = this.pointer ? { x: this.pointer[0], y: this.pointer[1] } : this.midScreen();
-    const notes = notesFromClipboard(e.clipboardData?.getData('text/html') ?? '');
-    if (notes) {
-      e.preventDefault();
-      this.placeCopies(notes, at);
+    const pasted = this.paste({ html: e.clipboardData?.getData('text/html') ?? '', text: e.clipboardData?.getData('text/plain') ?? '' }, at);
+    if (pasted) e.preventDefault();
+  }
+
+  // The Paste button: the pointer is on the toolbar, so it lands mid-screen like New.
+  private async pasteFromClipboard(): Promise<void> {
+    let contents: ClipboardContents;
+    try {
+      contents = await (this.deps.readClipboard ?? readClipboard)();
+    } catch {
+      this.toast.show("Couldn't paste from the clipboard");
       return;
     }
-    const text = (e.clipboardData?.getData('text/plain') ?? '').replace(/\r\n?/g, '\n');
-    if (!text.trim()) return;
-    e.preventDefault();
+    if (!this.paste(contents, this.midScreen())) this.toast.show('Nothing to paste');
+  }
+
+  // Copied notes are recreated; other text becomes a note. False if there was nothing to paste.
+  private paste({ html, text }: ClipboardContents, at: { x: number; y: number }): boolean {
+    const notes = notesFromClipboard(html);
+    if (notes) {
+      this.placeCopies(notes, at);
+      return true;
+    }
+    text = text.replace(/\r\n?/g, '\n');
+    if (!text.trim()) return false;
     const s = { ...createSticky({ ...at, z: this.maxZ() + 1 }, this.now()), text };
     this.upsertView(s);
     this.resize();
     this.save(s);
     this.setSelection([s.id]);
+    return true;
   }
 
   // Ctrl/Cmd+C with notes selected copies them whole; highlighted text is copied as usual instead.
@@ -351,7 +373,10 @@ export class Board {
     for (const [id, v] of this.views) v.setSelected(this.selected.has(id));
     this.selectionBar.hidden = this.selected.size === 0;
     this.selectionCount.textContent = `${this.selected.size} selected`;
-    if (this.selected.size === 0) this.setColourOpen(false);
+    if (this.selected.size === 0) {
+      this.setColourOpen(false);
+      closeMenus();
+    }
   }
 
   // --- search ---
@@ -527,7 +552,7 @@ export class Board {
       if (e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace' || (isPrimaryShortcut(e) && e.key.toLowerCase() === 'a')) e.preventDefault();
       return;
     }
-    if (e.key === 'Escape' && !this.colourDots.hidden) { // close open colour dots first, wherever focus is
+    if (e.key === 'Escape' && (closeMenus() || !this.colourDots.hidden)) { // close an open menu or the colour dots first, wherever focus is
       e.preventDefault();
       this.setColourOpen(false);
       return;

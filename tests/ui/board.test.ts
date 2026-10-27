@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Board, type BoardDeps } from '../../src/ui/board';
 import { StickyStore, KEY_PREFIX, parseStorageEvent } from '../../src/store';
 import { serializeBoard, exportFileName } from '../../src/format';
+import { clipboardData } from '../../src/clipboard';
 import type { Sticky } from '../../src/model';
 import { FakeStorage } from '../helpers/fakeStorage';
 
@@ -27,6 +28,7 @@ function setup(opts: { saved?: Sticky[]; storage?: Storage | null; answers?: str
     download: vi.fn(),
     pickFile: vi.fn(async () => (opts.file === undefined ? null : opts.file)),
     writeClipboard: vi.fn(async (_data: Record<string, string>) => {}),
+    readClipboard: vi.fn(async () => ({ html: '', text: '' })),
   } satisfies BoardDeps;
   const root = document.createElement('div');
   document.body.appendChild(root);
@@ -505,8 +507,7 @@ describe('selection', () => {
     expect(board.selectedIds()).toEqual(['a']);
     expect(viewOf(root, 'a').querySelector('textarea')).toBeNull();
     shiftClick(root, 'a');
-    const d = [...selectionBar(root).querySelectorAll('button')].find((b) => b.textContent === 'Deselect')!;
-    d.click();
+    selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Deselect"]')!.click();
     expect(board.selectedIds()).toEqual([]);
     expect(selectionBar(root).hidden).toBe(true);
   });
@@ -867,7 +868,8 @@ describe('selection actions', () => {
   ] });
   const pick = (root: HTMLElement, ...ids: string[]) => ids.forEach((id) => shiftClick(root, id));
   const act = (root: HTMLElement, label: string) => {
-    [...selectionBar(root).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === label)!.click();
+    [...selectionBar(root).querySelectorAll<HTMLButtonElement>('button:not(.menu-button)')]
+      .find((b) => b.textContent === label || b.getAttribute('aria-label') === label)!.click();
   };
   const geo = (store: StickyStore, id: string) => {
     const s = store.get(id)!;
@@ -1450,7 +1452,7 @@ describe('copy', () => {
   };
   const selectBoth = (root: HTMLElement) => { shiftClick(root, 'a'); shiftClick(root, 'b'); };
   const copyButton = (root: HTMLElement, label: string) =>
-    [...selectionBar(root).querySelectorAll('button')].find((b) => b.textContent === label)!;
+    [...selectionBar(root).querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === label)!;
   const toastText = (root: HTMLElement) => toast(root).querySelector('span')!.textContent;
 
   it('Ctrl/Cmd+C copies the selected notes with everything, and says so', () => {
@@ -1533,5 +1535,105 @@ describe('copy', () => {
     shiftClick(root, 'a');
     clipEvent('copy');
     expect(key(document.body, 'z', { ctrlKey: true }).defaultPrevented).toBe(false);
+  });
+});
+
+describe('toolbar menus', () => {
+  const pair = () => setup({ saved: [
+    sticky({ id: 'a', text: 'first', x: 100, y: 100, z: 3 }),
+    sticky({ id: 'b', text: 'second', x: 150, y: 400, z: 1 }),
+  ] });
+  const menu = (root: HTMLElement, label: string) =>
+    [...root.querySelectorAll<HTMLElement>('.toolbar .menu')].find((m) => m.querySelector('.menu-button')!.textContent === label)!;
+  const entries = (m: HTMLElement) =>
+    [...m.querySelectorAll('.menu-list > *')].map((el) => (el.getAttribute('role') === 'separator' ? '---' : el.textContent));
+  const topLevel = (el: HTMLElement) =>
+    [...el.children].filter((c) => !(c as HTMLElement).hidden && !c.classList.contains('toolbar-end'))
+      .map((c) => c.classList.contains('menu') ? `${c.querySelector('.menu-button')!.textContent} ▾` : c.querySelector('input') ? 'search' : c.textContent);
+  const toastText = (root: HTMLElement) => toast(root).querySelector('span')!.textContent;
+
+  it('the toolbar is New, Paste, a Board menu and search', () => {
+    const { root } = pair();
+    expect(topLevel(root.querySelector('.toolbar')!)).toEqual(['New', 'Paste', 'Board ▾', 'search']);
+    expect(entries(menu(root, 'Board'))).toEqual(['Export', 'Import', 'Clear board']);
+  });
+
+  it('with notes selected it adds the count, Arrange and Copy menus, colour, Delete and Deselect', () => {
+    const { root } = pair();
+    shiftClick(root, 'a');
+    const bar = selectionBar(root);
+    expect([...bar.children].map((c) =>
+      c.classList.contains('menu') ? `${c.querySelector('.menu-button')!.textContent} ▾`
+      : c.classList.contains('selection-colour') ? 'colour'
+      : c.getAttribute('aria-label') ?? c.textContent,
+    )).toEqual(['1 selected', 'Arrange ▾', 'Copy ▾', 'colour', 'Delete', 'Deselect']);
+    expect(entries(menu(root, 'Arrange'))).toEqual(['Cascade', 'Grid', 'Align left', 'Align top', 'Same size', 'Front']);
+    expect(entries(menu(root, 'Copy'))).toEqual(['Copy', 'Copy text', 'Copy Markdown', '---', 'Export selected']);
+    const deselect = bar.querySelector<HTMLButtonElement>('[aria-label="Deselect"]')!;
+    expect(deselect.textContent).toBe('✕');
+    expect(deselect.title).toBe('Deselect');
+  });
+
+  it('Escape closes an open menu before it clears the selection', () => {
+    const { root, board } = pair();
+    shiftClick(root, 'a');
+    menu(root, 'Arrange').querySelector<HTMLButtonElement>('.menu-button')!.click();
+    (document.activeElement as HTMLElement).blur();
+    expect(key(document.body, 'Escape').defaultPrevented).toBe(true);
+    expect(menu(root, 'Arrange').querySelector<HTMLElement>('.menu-list')!.hidden).toBe(true);
+    expect(board.selectedIds()).toEqual(['a']);
+  });
+
+  it('arrow keys in an open menu move through it without nudging the selected notes', () => {
+    const { root, store } = pair();
+    shiftClick(root, 'a');
+    menu(root, 'Arrange').querySelector<HTMLButtonElement>('.menu-button')!.click();
+    key(document.activeElement!, 'ArrowDown');
+    expect(document.activeElement!.textContent).toBe('Grid');
+    expect(store.get('a')!.y).toBe(100);
+  });
+
+  it('clearing the selection closes an open selection menu', () => {
+    const { root } = pair();
+    shiftClick(root, 'a');
+    menu(root, 'Copy').querySelector<HTMLButtonElement>('.menu-button')!.click();
+    selectionBar(root).querySelector<HTMLButtonElement>('[aria-label="Deselect"]')!.click();
+    expect(menu(root, 'Copy').querySelector<HTMLElement>('.menu-list')!.hidden).toBe(true);
+  });
+
+  it('Paste recreates copied notes mid-screen, on top and selected', async () => {
+    const { root, board, deps } = pair();
+    deps.readClipboard.mockResolvedValueOnce({ html: clipboardData([sticky({ id: 'x', text: 'copied', x: 5, y: 5 })], 'notes')['text/html'], text: 'copied' });
+    button(root, 'Paste').click();
+    await settle();
+    const made = board.stickies().find((s) => s.text === 'copied')!;
+    expect([made.x, made.y, made.z]).toEqual([
+      Math.max(0, window.scrollX + window.innerWidth / 2 - 110),
+      Math.max(0, window.scrollY + window.innerHeight / 2 - 90),
+      4,
+    ]);
+    expect(board.selectedIds()).toEqual([made.id]);
+  });
+
+  it('Paste turns plain text into a selected note mid-screen', async () => {
+    const { root, board, deps } = pair();
+    deps.readClipboard.mockResolvedValueOnce({ html: '', text: 'line one\r\nline two' });
+    button(root, 'Paste').click();
+    await settle();
+    const made = board.stickies().find((s) => s.id !== 'a' && s.id !== 'b')!;
+    expect(made.text).toBe('line one\nline two');
+    expect(board.selectedIds()).toEqual([made.id]);
+  });
+
+  it('Paste says so when the clipboard is empty or the browser refuses', async () => {
+    const { root, board, deps } = pair();
+    button(root, 'Paste').click();
+    await settle();
+    expect(toastText(root)).toBe('Nothing to paste');
+    deps.readClipboard.mockRejectedValueOnce(new Error('denied'));
+    button(root, 'Paste').click();
+    await settle();
+    expect(toastText(root)).toBe("Couldn't paste from the clipboard");
+    expect(board.stickies()).toHaveLength(2);
   });
 });

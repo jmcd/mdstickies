@@ -526,3 +526,44 @@ body {
   display: flex;
   align-items: center;
 }
+
+/* Toolbar menus: the list floats over the board, so opening one never changes the toolbar's height. */
+.menu {
+  position: relative;
+}
+
+.menu-button::after {
+  content: ' ▾';
+  opacity: 0.6;
+}
+
+.menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.menu-list[hidden] { display: none; }
+
+.toolbar .menu-item {
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  padding: 6px 16px;
+}
+
+.toolbar .menu-item:focus-visible { outline-offset: -2px; }
+
+.menu-divider {
+  margin: 4px 0;
+  border-top: 1px solid var(--border);
+}

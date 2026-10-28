@@ -1,7 +1,7 @@
 {
   "name": "mdstickies",
   "version": "1.0.0",
-  "description": "",
+  "description": "Markdown sticky notes on a board, in your browser",
   "directories": {
     "doc": "docs"
   },

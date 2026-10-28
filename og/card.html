@@ -1,0 +1,91 @@
+<!doctype html>
+<!--
+  Source for public/og-image.png, the link-preview card.
+  Regenerate with a headless Chromium at 1200×630, for example:
+    chrome-headless-shell --hide-scrollbars --window-size=1200,630 --screenshot=public/og-image.png og/card.html
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+      body {
+        background: #f3f1ec;
+        color: #1f2328;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        position: relative;
+      }
+      .text { position: absolute; left: 80px; top: 0; bottom: 0; width: 600px; display: flex; flex-direction: column; justify-content: center; }
+      .brand { display: flex; align-items: center; gap: 22px; }
+      .brand img { width: 96px; height: 96px; }
+      .brand h1 { margin: 0; font-size: 84px; letter-spacing: -2px; font-weight: 800; }
+      .tagline { margin: 34px 0 0; font-size: 40px; line-height: 1.25; font-weight: 600; }
+      .sub { margin: 16px 0 0; font-size: 28px; color: #57606a; }
+      .url { margin-top: 48px; font-size: 30px; font-weight: 700; color: #2563eb; }
+
+      .note {
+        position: absolute; border-radius: 4px; overflow: hidden;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.1);
+        font-size: 22px; line-height: 1.4;
+      }
+      .note .bar { height: 26px; background: rgba(0, 0, 0, 0.08); }
+      .note .body { padding: 14px 20px; }
+      .note h2 { margin: 0 0 8px; font-size: 32px; }
+      .note h3 { margin: 0 0 8px; font-size: 26px; }
+      .note ul { margin: 0; padding-left: 0; list-style: none; }
+      .note li { margin: 4px 0; }
+      .note code, .note pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+      .note pre { margin: 8px 0 0; padding: 10px 12px; background: #fff; border-radius: 4px; font-size: 18px; }
+      .k { color: #cf222e; } .f { color: #8250df; } .s { color: #0a3069; }
+
+      .yellow { background: #fff3a3; }
+      .green { background: #c8f0c0; }
+      .blue { background: #bfe3ff; }
+    </style>
+  </head>
+  <body>
+    <div class="text">
+      <div class="brand">
+        <img src="../public/favicon.svg" alt="" />
+        <h1>mdstickies</h1>
+      </div>
+      <p class="tagline">Markdown sticky notes,<br />right in your browser.</p>
+      <p class="sub">Free, no sign-up. Notes stay on your device.</p>
+      <div class="url">mdstickies.com →</div>
+    </div>
+
+    <div class="note blue" style="left: 820px; top: 40px; width: 330px; transform: rotate(4deg)">
+      <div class="bar"></div>
+      <div class="body">
+        <h3>Code</h3>
+        <pre><span class="k">const</span> <span class="f">greet</span> = (name) =>
+  <span class="s">`Hello, ${name}!`</span>;</pre>
+      </div>
+    </div>
+
+    <div class="note green" style="left: 660px; top: 290px; width: 290px; transform: rotate(-5deg)">
+      <div class="bar"></div>
+      <div class="body">
+        <h3>Today</h3>
+        <ul>
+          <li>☑ Open mdstickies</li>
+          <li>☐ Write in Markdown</li>
+          <li>☐ Drag notes around</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note yellow" style="left: 945px; top: 345px; width: 230px; transform: rotate(3deg)">
+      <div class="bar"></div>
+      <div class="body">
+        <h2>Ideas</h2>
+        <ul>
+          <li><b>bold</b>, <i>italic</i></li>
+          <li><code>inline code</code></li>
+          <li>☑ task lists</li>
+        </ul>
+      </div>
+    </div>
+  </body>
+</html>
